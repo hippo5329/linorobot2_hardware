@@ -66,6 +66,9 @@
 // this barrier helps to reduce user merge conflict
 // add user configurations below this line
 
+#ifdef USE_ROSMO_WIFI_CONFIG
+    #include "custom/rosmo_wifi_config.h"
+#endif
 
 // add user configurations above this line
 // this should be the last one
