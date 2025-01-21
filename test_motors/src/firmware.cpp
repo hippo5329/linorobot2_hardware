@@ -92,16 +92,6 @@ PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 PID motor3_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 PID motor4_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 
-Kinematics kinematics(
-    Kinematics::LINO_BASE,
-    MOTOR_MAX_RPM,
-    MAX_RPM_RATIO,
-    MOTOR_OPERATING_VOLTAGE,
-    MOTOR_POWER_MAX_VOLTAGE,
-    WHEEL_DIAMETER,
-    LR_WHEELS_DISTANCE
-);
-
 Odometry odometry;
 IMU imu;
 MAG mag;
@@ -173,12 +163,12 @@ void loop() {
     if (current_motor == 3 && tk % run_time == run_time - 1) max_rpm = current_rpm4;
     if (total_motors == 4 && current_motor == 0 && tk % run_time == 0) stopping = current_rpm4;
     if (tk && tk % run_time == 0) {
-        Kinematics::velocities max_linear = kinematics.getVelocities(max_rpm, max_rpm, max_rpm, max_rpm);
-	Kinematics::velocities max_angular = kinematics.getVelocities(-max_rpm, max_rpm,-max_rpm, max_rpm);
-	Serial.printf("MOTOR%d SPEED %6.2f m/s %6.2f rad/s STOP %6.3f m\n", current_motor ? current_motor : total_motors,
-	       max_linear.linear_x, max_angular.angular_z, max_linear.linear_x * stopping / max_rpm);
-	syslog(LOG_INFO, "MOTOR%d SPEED %6.2f m/s %6.2f rad/s STOP %6.3f m\n", current_motor ? current_motor : total_motors,
-	       max_linear.linear_x, max_angular.angular_z, max_linear.linear_x * stopping / max_rpm);
+        float max_linear_speed = max_rpm / 60.0 * PI * WHEEL_DIAMETER; // m/s = rps * circumference
+
+        Serial.printf("MOTOR%d SPEED %6.2f m/s STOP %6.3f m\n", current_motor ? current_motor : total_motors,
+	       max_linear_speed, max_linear_speed * stopping / max_rpm);
+        syslog(LOG_INFO, "MOTOR%d SPEED %6.2f m/s STOP %6.3f m\n", current_motor ? current_motor : total_motors,
+	       max_linear_speed, max_linear_speed * stopping / max_rpm);
     }
     Serial.printf("MOTOR%d %s RPM %8.1f %8.1f %8.1f %8.1f\n",
 	   current_motor + 1, direction ? "REV" : "FWD",
