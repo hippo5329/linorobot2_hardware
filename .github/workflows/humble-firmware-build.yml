@@ -37,5 +37,6 @@ jobs:
     uses: ./.github/workflows/reusable-platformio-ci.yml
     with:
       ros_distro: humble
+      os: ubuntu-22.04
       # The reference field will be set to 'humble' only if the event that triggered the workflow is schedule. Otherwise, it will be left blank.
       reference: ${{ github.event_name == 'schedule' && 'humble' || '' }}

@@ -44,5 +44,6 @@ jobs:
     uses: ./.github/workflows/reusable-platformio-ci.yml
     with:
       ros_distro: rolling
+      os: ubuntu-24.04
       # The reference field will be set to the default branch only if the event that triggered the workflow is schedule. Otherwise, it will be left blank.
       reference: ${{ github.event_name == 'schedule' && github.event.repository.default_branch || '' }}
