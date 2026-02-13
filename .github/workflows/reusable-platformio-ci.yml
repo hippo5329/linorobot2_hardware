@@ -20,7 +20,7 @@ jobs:
   # This job is used to build the calibration firmware
   build-calibration:
     name: Build Calibration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       # Check out the repository
@@ -50,7 +50,7 @@ jobs:
   # This job parses the firmware/platformio.ini file
   pio-fw-matrix:
     name: Parse firmware/platformio.ini
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
 
@@ -77,7 +77,7 @@ jobs:
   build-firmware:
     # require the pio-fw-matrix job to complete before running
     needs: pio-fw-matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Build ${{ matrix.env }} firmware on ROS ${{ inputs.ros_distro }}
     strategy:
       # don't stop all jobs if one fails
