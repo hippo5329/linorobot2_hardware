@@ -112,6 +112,12 @@ jobs:
         with:
           required-ros-distributions: ${{ inputs.ros_distro }}
 
+      - name: Install ROS 2 rmw
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ros-${{ inputs.ros_distro }}-rmw
+
       - name: Install environment
         uses: ./repo/.github/actions/platformio-env
           
@@ -121,6 +127,7 @@ jobs:
           ROS_DISTRO: ${{ inputs.ros_distro }}
         shell: bash
         run: |
+          source /opt/ros/${{ inputs.ros_distro }}/setup.bash
           export PATH=$PATH:~/.platformio/penv/bin
           cd repo/firmware
           pio run -e ${{ matrix.env }}
