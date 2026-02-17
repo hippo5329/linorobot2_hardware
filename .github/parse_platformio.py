@@ -12,6 +12,8 @@ environments = []
 for section in config.sections():
     if section.startswith("env:"):
         env_name = section.split("env:")[1]
+        if "teensy" in env_name:
+            continue  # Skip environments that contain "teensy"
         environments.append({"env": env_name})
 
 # Output the environments as a JSON array
