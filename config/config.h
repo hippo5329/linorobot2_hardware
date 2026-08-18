@@ -54,6 +54,22 @@
     #include "custom/pico_config.h"
 #endif
 
+#ifdef USE_PICO2W_CONFIG
+    #include "custom/pico2w_config.h"
+#endif
+
+#ifdef USE_PICO2W_WIFI_CONFIG
+    #include "custom/pico2w_wifi_config.h"
+#endif
+
+#ifdef USE_PICOW_CONFIG
+    #include "custom/picow_config.h"
+#endif
+
+#ifdef USE_PICOW_WIFI_CONFIG
+    #include "custom/picow_wifi_config.h"
+#endif
+
 // add maintainer configurations above this line
 // this barrier helps to reduce user merge conflict
 // add user configurations below this line
