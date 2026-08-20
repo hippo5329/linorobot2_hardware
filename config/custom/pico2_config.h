@@ -189,23 +189,51 @@ ROBOT ORIENTATION
   #define PWM_MIN -PWM_MAX
 #endif
 
-#define AGENT_IP { 192, 168, 1, 100 }  // eg IP of the desktop computer
-#define AGENT_PORT 8888
-// Enable WiFi with null terminated list of multiple APs SSID and password
-// #define WIFI_AP_LIST {{"WIFI_SSID", "WIFI_PASSWORD"}, {NULL}}
-#define WIFI_MONITOR 2 // min. period to send wifi signal strength to syslog
+// Wifi network settings
+// Option 1: Enable WiFi by copying wifi_config.h.template in this directory
+// to wifi_config.h and filling in your wifi credentials and IP addresses.
+// wifi_config.h will be ignored by git, so your credentials will not be pushed to github,
+// and will be private to you. This is the recommended option.
+// Option 2: Enable WiFi below by filling in your wifi credentials and IP addresses.
+// WARNING: if you push this file to git, your credentials will be public!
+
+#if __has_include("wifi_config.h")
+  #include "wifi_config.h"
+#else
+  // Enable WiFi with null terminated list of multiple APs SSID and password
+  // #define WIFI_AP_LIST {{"WIFI_SSID", "WIFI_PASSWORD"}, {NULL, NULL}}
+  #define AGENT_IP { 192, 168, 1, 100 }
+  #define SYSLOG_SERVER { 192, 168, 1, 100 }
+  #define LIDAR_SERVER { 192, 168, 1, 100 }
+#endif
+
+// Uncomment the line below to enable Arduino OTA updates.
 // #define USE_ARDUINO_OTA
+// Uncomment the line below to enable syslog for debugging over wifi.
 // #define USE_SYSLOG
-#define SYSLOG_SERVER { 192, 168, 1, 100 }  // eg IP of the desktop computer
+#ifdef USE_WIFI
+  #ifndef USE_ARDUINO_OTA
+    #define USE_ARDUINO_OTA
+  #endif
+  #ifndef USE_SYSLOG
+    #define USE_SYSLOG
+  #endif
+#endif
+
+#define WIFI_MONITOR 2 // min. period to send wifi signal strength to syslog
+#define AGENT_PORT 8888
 #define SYSLOG_PORT 514
-#define DEVICE_HOSTNAME "pico2"
+#if defined(PICO2W)
+  #define DEVICE_HOSTNAME "pico2w"
+#else
+  #define DEVICE_HOSTNAME "pico2"
+#endif
 #define APP_NAME "hardware"
 // #define USE_LIDAR_UDP
 #define LIDAR_RXD 1
 // #define LIDAR_PWM 0
 #define LIDAR_SERIAL 1 // uart number
 #define LIDAR_BAUDRATE 230400
-#define LIDAR_SERVER { 192, 168, 1, 100 }  // eg IP of the desktop computer
 #define LIDAR_PORT 8889
 #define BAUDRATE 115200
 #define SDA_PIN 4 // specify I2C pins

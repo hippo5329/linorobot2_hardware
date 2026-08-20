@@ -7,6 +7,24 @@ ROS 2 Distro | Branch | Build status
 
 # linorobot2_hardware for ESP32 and Pico
 
+## 📶 Unified Wireless Connectivity (WiFi OTA, Syslog & micro-ROS over WiFi)
+
+Linorobot2 supports wireless connectivity across **Raspberry Pi Pico W (`rpipicow` / RP2040)**, **Pico 2 W (`rpipico2w` / RP2350)**, and the **ESP32 family** (ESP32, ESP32-S2, ESP32-S3, Waveshare General Driver Board):
+
+* **High-Speed USB Serial micro-ROS with Background WiFi**: Runs micro-ROS at full native bandwidth over USB Serial (`/dev/ttyACM0` / `/dev/ttyUSB0`) for deterministic, low-latency velocity control and odometry, while simultaneously maintaining a background WiFi connection for wireless ArduinoOTA flashing and real-time remote Syslog telemetry.
+* **micro-ROS over WiFi (UDP)**: Optionally bridges micro-ROS directly over WiFi UDP for fully untethered MCU architectures (`*_wifi` targets).
+* **Wireless ArduinoOTA Upload**: Switch between USB serial and wireless OTA updates by setting `upload_protocol = espota` in `platformio.ini` (e.g. `pio run -e pico2w -t upload`).
+
+Supported targets:
+* `pico2w` / `pico2w_wifi` (Raspberry Pi Pico 2 W - RP2350)
+* `picow` / `picow_wifi` (Raspberry Pi Pico W - RP2040)
+* `esp32` / `esp32_wifi` (ESP32)
+* `esp32s2` / `esp32s2_wifi` (ESP32-S2)
+* `esp32s3` / `esp32s3_wifi` (ESP32-S3)
+* `gendrv` / `gendrv_wifi` (Waveshare General Driver Board)
+
+---
+
 ## Overview
 
 The linorobot2_hardware repo uses platformio to build microcontroller firmware for mobile robots based on micro-ROS.
