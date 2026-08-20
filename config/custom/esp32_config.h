@@ -200,7 +200,7 @@ ROBOT ORIENTATION
   #include "wifi_config.h"
 #else
   // Enable WiFi with null terminated list of multiple APs SSID and password
-  // #define WIFI_AP_LIST {{"WIFI_SSID", "WIFI_PASSWORD"}, {NULL}}
+  // #define WIFI_AP_LIST {{"WIFI_SSID", "WIFI_PASSWORD"}, {NULL, NULL}}
   #define AGENT_IP { 192, 168, 1, 100 }
   #define SYSLOG_SERVER { 192, 168, 1, 100 }
   #define LIDAR_SERVER { 192, 168, 1, 100 }
@@ -210,6 +210,14 @@ ROBOT ORIENTATION
 // #define USE_ARDUINO_OTA
 // Uncomment the line below to enable syslog for debugging over wifi.
 // #define USE_SYSLOG
+#ifdef USE_WIFI
+  #ifndef USE_ARDUINO_OTA
+    #define USE_ARDUINO_OTA
+  #endif
+  #ifndef USE_SYSLOG
+    #define USE_SYSLOG
+  #endif
+#endif
 
 #define WIFI_MONITOR 2 // min. period to send wifi signal strength to syslog
 #define AGENT_PORT 8888
