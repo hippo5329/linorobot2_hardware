@@ -22,20 +22,12 @@
     #include "custom/dev_config.h"
 #endif
 
-#ifdef USE_GENDRV_CONFIG
+#if defined(USE_GENDRV_CONFIG) || defined(USE_GENDRV_WIFI_CONFIG)
     #include "custom/gendrv_config.h"
 #endif
 
-#ifdef USE_GENDRV_WIFI_CONFIG
-    #include "custom/gendrv_wifi_config.h"
-#endif
-
-#ifdef USE_ESP32_CONFIG
+#if defined(USE_ESP32_CONFIG) || defined(USE_ESP32_WIFI_CONFIG)
     #include "custom/esp32_config.h"
-#endif
-
-#ifdef USE_ESP32_WIFI_CONFIG
-    #include "custom/esp32_wifi_config.h"
 #endif
 
 #ifdef USE_ESP32S2_CONFIG
@@ -46,11 +38,7 @@
     #include "custom/esp32s3_config.h"
 #endif
 
-#ifdef USE_PICO2_CONFIG
-    #include "custom/pico2_config.h"
-#endif
-
-#ifdef USE_PICO_CONFIG
+#if defined(USE_PICO_CONFIG) || defined(USE_PICO2_CONFIG)
     #include "custom/pico_config.h"
 #endif
 
