@@ -2,3 +2,4 @@
 .swp
 .vscode
 __pycache__/
+*wifi_config.h
