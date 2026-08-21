@@ -258,10 +258,9 @@ void loop() {
 #endif
 }
 
-void controlCallback(rcl_timer_t * timer, int64_t last_call_time, uintptr_t actual_calls) 
+void controlCallback(rcl_timer_t * timer, int64_t last_call_time) 
 {
     RCLC_UNUSED(last_call_time);
-    RCLC_UNUSED(actual_calls);
     if (timer != NULL) 
     {
        moveBase();
