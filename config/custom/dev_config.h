@@ -17,10 +17,14 @@
 
 #define LED_PIN 13 
 
-#define LINO_BASE SKID_STEER 
+#define LINO_BASE MECANUM 
 
-#define USE_GENERIC_1_IN_MOTOR_DRIVER 
-#define USE_FAKE_IMU
+#define USE_GENERIC_2_IN_MOTOR_DRIVER 
+#define USE_MPU9250_IMU
+#define USE_AK8963_MAG
+
+#define TRIG_PIN 7
+#define ECHO_PIN 8
 
 #define K_P 0.6                             
 #define K_I 0.8                             

@@ -23,9 +23,9 @@
 // #define LINO_BASE MECANUM               // Mecanum drive robot
 
 //uncomment the motor driver you're using
-// #define USE_GENERIC_2_IN_MOTOR_DRIVER      // Motor drivers with 2 Direction Pins(INA, INB) and 1 PWM(ENABLE) pin ie. L298, L293, VNH5019
+#define USE_GENERIC_2_IN_MOTOR_DRIVER      // Motor drivers with 2 Direction Pins(INA, INB) and 1 PWM(ENABLE) pin ie. L298, L293, VNH5019
 // #define USE_GENERIC_1_IN_MOTOR_DRIVER   // Motor drivers with 1 Direction Pin(INA) and 1 PWM(ENABLE) pin.
-#define USE_BTS7960_MOTOR_DRIVER        // BTS7970 Motor Driver using A4950 (<40V) module or DRV8833 (<10V)
+// #define USE_BTS7960_MOTOR_DRIVER        // BTS7970 Motor Driver using A4950 (<40V) module or DRV8833 (<10V)
 // #define USE_ESC_MOTOR_DRIVER            // Motor ESC for brushless motors
 
 //uncomment the IMU you're using
@@ -34,11 +34,11 @@
 // #define USE_MPU6050_IMU
 // #define USE_MPU9150_IMU
 // #define USE_MPU9250_IMU
-// #define USE_QMI8658_IMU
+#define USE_QMI8658_IMU
 // #define USE_HMC5883L_MAG
 // #define USE_AK8963_MAG
 // #define USE_AK8975_MAG
-// #define USE_AK09918_MAG
+#define USE_AK09918_MAG
 // #define USE_QMC5883L_MAG
 // #define MAG_BIAS { 0, 0, 0 }
 // #define IMU_TWEAK {}
@@ -251,8 +251,8 @@ ROBOT ORIENTATION
 // #define BATTERY_CAP 2.0  // battery capacity Ah
 // #define BATTERY_MIN 9.0  // battery minimal voltage
 // #define BATTERY_MAX 12.6 // battery maximum voltage
-// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
-// #define ECHO_PIN 32
+#define TRIG_PIN 18 // ultrasonic sensor HC-SR04
+#define ECHO_PIN 19
 #define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 60 // Sec
 #define BOARD_INIT { \

@@ -31,11 +31,11 @@
 //uncomment the IMU you're using
 // #define USE_GY85_IMU
 // #define USE_BNO085_IMU
-// #define USE_MPU6050_IMU
+#define USE_MPU6050_IMU
 // #define USE_MPU9150_IMU
 // #define USE_MPU9250_IMU
 // #define USE_QMI8658_IMU
-// #define USE_HMC5883L_MAG
+#define USE_HMC5883L_MAG
 // #define USE_AK8963_MAG
 // #define USE_AK8975_MAG
 // #define USE_AK09918_MAG
@@ -251,8 +251,8 @@ const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };
 #define BATTERY_ADJUST(v) ((v) * ((10 + 1) / 1) / 1000.0)
 #endif
 // #define USE_INA219
-// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
-// #define ECHO_PIN 32
+#define TRIG_PIN 19 // ultrasonic sensor HC-SR04
+#define ECHO_PIN 18
 #define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 60 // Sec
 #define BOARD_INIT { \
