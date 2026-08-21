@@ -238,7 +238,7 @@ For bigger robots, you can add an emergency switch in between the motor drivers'
 
 ## Configure the firmware settings for your robot
 
-Go to the config/custom folder and open a suitable config file, e.g. esp32_config.h or pico2_config.h.
+Go to the config/custom folder and open a suitable config file, e.g. esp32_config.h or pico_config.h.
 Uncomment the base, motor driver and IMU you want to use for your robot. For example:
 
     #define LINO_BASE DIFFERENTIAL_DRIVE
