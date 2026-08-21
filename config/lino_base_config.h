@@ -29,7 +29,7 @@
 // #define USE_ESC_MOTOR_DRIVER            // Motor ESC for brushless motors
 
 //uncomment the IMU you're using
-// #define USE_GY85_IMU
+#define USE_GY85_IMU
 // #define USE_MPU6050_IMU
 // #define USE_MPU9150_IMU
 // #define USE_MPU9250_IMU
@@ -196,7 +196,7 @@ ROBOT ORIENTATION
 #define LIDAR_BAUDRATE 230400
 #define LIDAR_SERVER { 192, 168, 1, 100 }  // eg IP of the desktop computer
 #define LIDAR_PORT 8889
-// #define BAUDRATE 115200
+// #define BAUDRATE 921600
 // #define SDA_PIN 18 // specify I2C pins
 // #define SCL_PIN 19
 #define NODE_NAME "linorobot_base_node"
@@ -205,14 +205,14 @@ ROBOT ORIENTATION
 // #define BATTERY_TIMER 2000
 
 // battery voltage ADC pin
-// #define BATTERY_PIN 33
+#define BATTERY_PIN 33
 // 3.3V ref, 12 bits ADC, 33k + 10k voltage divider
 #define BATTERY_ADJUST(v) ((v) * (3.3 / 4096 * (33 + 10) / 10))
 // #define USE_INA219
 #define BATTERY_DIP 0.98  // battery voltage drop alert
-// #define BATTERY_CAP 2.0  // battery capacity Ah
-// #define BATTERY_MIN 9.0  // battery minimal voltage
-// #define BATTERY_MAX 12.6 // battery maximum voltage
+#define BATTERY_CAP 2.0  // battery capacity Ah
+#define BATTERY_MIN 9.0  // battery minimal voltage
+#define BATTERY_MAX 12.6 // battery maximum voltage
 // #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
 // #define ECHO_PIN 32
 // #define USE_SHORT_BRAKE // for shorter stopping distance

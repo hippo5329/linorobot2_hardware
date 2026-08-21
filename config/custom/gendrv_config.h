@@ -34,11 +34,11 @@
 // #define USE_MPU6050_IMU
 // #define USE_MPU9150_IMU
 // #define USE_MPU9250_IMU
-// #define USE_QMI8658_IMU
+#define USE_QMI8658_IMU
 // #define USE_HMC5883L_MAG
 // #define USE_AK8963_MAG
 // #define USE_AK8975_MAG
-// #define USE_AK09918_MAG
+#define USE_AK09918_MAG
 // #define USE_QMC5883L_MAG
 // #define MAG_BIAS { 0, 0, 0 }
 // #define IMU_TWEAK {}
@@ -224,7 +224,7 @@ ROBOT ORIENTATION
 #define SYSLOG_PORT 514
 #define DEVICE_HOSTNAME "gendrv"
 #define APP_NAME "hardware"
-// #define USE_LIDAR_UDP  // send lidar data to udp server
+#define USE_LIDAR_UDP  // send lidar data to udp server
 #define LIDAR_RXD 4
 // #define LIDAR_PWM 15
 #define LIDAR_SERIAL 1 // uart number
