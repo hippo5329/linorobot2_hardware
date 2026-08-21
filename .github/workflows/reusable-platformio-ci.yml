@@ -22,9 +22,9 @@ on:
         type: string
 
 jobs:
-  # This job is used to build the calibration firmware
-  build-calibration:
-    name: Build Calibration
+  # This job builds the diagnostics utilities and toolchains
+  build-tools:
+    name: Build Diagnostics & Tools on ROS ${{ inputs.ros_distro }}
     runs-on: ${{ inputs.os }}
 
     steps:
@@ -42,14 +42,69 @@ jobs:
             ~/.platformio/.cache
           key: ${{ runner.os }}-pio
 
+      - name: Install Python dependencies
+        run: |
+          pip install osrf_pycommon pyyaml
+
+      - name: Setup ROS
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: ${{ inputs.ros_distro }}
+
+      - name: Install ROS 2 rmw
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ros-${{ inputs.ros_distro }}-rmw-cyclonedds-cpp ros-${{ inputs.ros_distro }}-rmw-fastrtps-cpp || true
+
       - name: Install environment
         uses: ./repo/.github/actions/platformio-env
 
-      - name: Build Calibration
+      - name: Run Configuration Engine Tests
+        run: |
+          if [ -d "repo/tools/robot_config_engine" ]; then
+            python3 -m unittest discover repo/tools/robot_config_engine
+          fi
+
+      - name: Build Calibration (test_acc)
+        shell: bash
+        run: |
+          source /opt/ros/${{ inputs.ros_distro }}/setup.bash
+          export PATH=$PATH:~/.platformio/penv/bin
+          if [ -d "repo/calibration" ]; then
+            cd repo/calibration
+            pio run
+          fi
+
+      - name: Build Sensor Diagnostics (test_sensors)
+        shell: bash
+        run: |
+          source /opt/ros/${{ inputs.ros_distro }}/setup.bash
+          export PATH=$PATH:~/.platformio/penv/bin
+          if [ -d "repo/test_sensors" ]; then
+            cd repo/test_sensors
+            pio run -e pico2 -e esp32 -e gendrv
+          fi
+
+      - name: Build Motor Diagnostics (test_motors)
+        shell: bash
+        run: |
+          source /opt/ros/${{ inputs.ros_distro }}/setup.bash
+          export PATH=$PATH:~/.platformio/penv/bin
+          if [ -d "repo/test_motors" ]; then
+            cd repo/test_motors
+            pio run -e pico2 -e esp32 -e gendrv
+          fi
+
+      - name: Build ADC Calibration (adc_calibrate)
+        shell: bash
         run: |
           export PATH=$PATH:~/.platformio/penv/bin
-          cd repo/calibration
-          pio run
+          if [ -d "repo/adc_calibrate" ]; then
+            cd repo/adc_calibrate
+            pio run -e esp32 -e gendrv
+          fi
+
 
 
   # This job parses the firmware/platformio.ini file
