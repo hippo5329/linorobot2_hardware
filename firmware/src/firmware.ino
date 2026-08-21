@@ -258,9 +258,10 @@ void loop() {
 #endif
 }
 
-void controlCallback(rcl_timer_t * timer, int64_t last_call_time) 
+void controlCallback(rcl_timer_t * timer, int64_t last_call_time, uintptr_t actual_calls) 
 {
     RCLC_UNUSED(last_call_time);
+    RCLC_UNUSED(actual_calls);
     if (timer != NULL) 
     {
        moveBase();
@@ -341,7 +342,7 @@ bool createEntities()
         &control_timer, 
         &support,
         RCL_MS_TO_NS(control_timeout),
-        controlCallback
+        (rcl_timer_callback_t) controlCallback
     ));
     executor = rclc_executor_get_zero_initialized_executor();
     RCCHECK(rclc_executor_init(&executor, &support.context, 2, & allocator));
