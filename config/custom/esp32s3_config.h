@@ -251,8 +251,8 @@ const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };
 #define BATTERY_ADJUST(v) ((v) * ((10 + 1) / 1) / 1000.0)
 #endif
 // #define USE_INA219
-// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
-// #define ECHO_PIN 32
+#define TRIG_PIN 10 // ultrasonic sensor HC-SR04
+#define ECHO_PIN 11
 #define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 60 // Sec
 #define BOARD_INIT { \

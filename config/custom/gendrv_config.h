@@ -251,8 +251,8 @@ ROBOT ORIENTATION
 // #define BATTERY_CAP 2.0  // battery capacity Ah
 // #define BATTERY_MIN 9.0  // battery minimal voltage
 // #define BATTERY_MAX 12.6 // battery maximum voltage
-// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
-// #define ECHO_PIN 32
+#define TRIG_PIN 18 // ultrasonic sensor HC-SR04
+#define ECHO_PIN 19
 #define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 60 // Sec
 #define BOARD_INIT { \
