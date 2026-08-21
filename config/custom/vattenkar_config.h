@@ -22,6 +22,9 @@
 #define USE_GENERIC_1_IN_MOTOR_DRIVER 
 #define USE_GY85_IMU
 
+#define TRIG_PIN 7
+#define ECHO_PIN 8
+
 #define K_P 0.6                             
 #define K_I 0.8                             
 #define K_D 0.5                             
