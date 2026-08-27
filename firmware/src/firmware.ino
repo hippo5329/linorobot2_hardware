@@ -117,6 +117,13 @@ unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
 float prev_voltage;
 
+#if defined(ESP32) && !defined(CONFIG_FREERTOS_UNICORE)
+#define USE_ESP32_DUAL_CORE 1
+TaskHandle_t controlTaskHandle = NULL;
+portMUX_TYPE controlMux = portMUX_INITIALIZER_UNLOCKED;
+void controlTask(void *pvParameters);
+#endif
+
 enum states 
 {
   WAITING_AGENT,
@@ -161,10 +168,13 @@ MAG mag;
 void setup() 
 {
     pinMode(LED_PIN, OUTPUT);
-    Serial.begin(BAUDRATE);
 #ifdef ESP32
     Serial.setRxBufferSize(1024);
+#ifndef ARDUINO_USB_CDC_ON_BOOT
+    Serial.setTxBufferSize(1024);
 #endif
+#endif
+    Serial.begin(BAUDRATE);
 
 #ifdef BOARD_INIT // board specific setup, must include Wire.begin
     BOARD_INIT
@@ -213,6 +223,17 @@ void setup()
 #ifdef BOARD_INIT_LATE // board specific setup
     BOARD_INIT_LATE
 #endif
+#ifdef USE_ESP32_DUAL_CORE
+    xTaskCreatePinnedToCore(
+        controlTask,
+        "controlTask",
+        4096,
+        NULL,
+        configMAX_PRIORITIES - 2,
+        &controlTaskHandle,
+        1
+    );
+#endif
     syslog(LOG_INFO, "%s Ready %lu", __FUNCTION__, millis());
 }
 
@@ -236,7 +257,7 @@ void loop() {
 #endif
             if (state == AGENT_CONNECTED) 
             {
-                rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+                rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
             }
             break;
         case AGENT_DISCONNECTED:
@@ -263,7 +284,9 @@ void controlCallback(rcl_timer_t * timer, int64_t last_call_time)
     RCLC_UNUSED(last_call_time);
     if (timer != NULL) 
     {
+#ifndef USE_ESP32_DUAL_CORE
        moveBase();
+#endif
        publishData();
     }
 }
@@ -392,6 +415,9 @@ bool destroyEntities()
 
 void fullStop()
 {
+#ifdef USE_ESP32_DUAL_CORE
+    portENTER_CRITICAL(&controlMux);
+#endif
     twist_msg.linear.x = 0.0;
     twist_msg.linear.y = 0.0;
     twist_msg.angular.z = 0.0;
@@ -400,7 +426,28 @@ void fullStop()
     motor2_controller.brake();
     motor3_controller.brake();
     motor4_controller.brake();
+#ifdef USE_ESP32_DUAL_CORE
+    portEXIT_CRITICAL(&controlMux);
+#endif
 }
+
+#ifdef USE_ESP32_DUAL_CORE
+void controlTask(void *pvParameters)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(CONTROL_TIMER);
+    for (;;)
+    {
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        if (state == AGENT_CONNECTED)
+        {
+            portENTER_CRITICAL(&controlMux);
+            moveBase();
+            portEXIT_CRITICAL(&controlMux);
+        }
+    }
+}
+#endif
 
 void moveBase()
 {
@@ -454,7 +501,13 @@ void moveBase()
 void publishData()
 {
     static unsigned skip_dip = 0;
+#ifdef USE_ESP32_DUAL_CORE
+    portENTER_CRITICAL(&controlMux);
     odom_msg = odometry.getData();
+    portEXIT_CRITICAL(&controlMux);
+#else
+    odom_msg = odometry.getData();
+#endif
     imu_msg = imu.getData();
 #ifdef USE_FAKE_IMU
     imu_msg.angular_velocity.z = odom_msg.twist.twist.angular.z;
@@ -492,7 +545,7 @@ void publishData()
 #ifdef BATTERY_DIP
     if (!skip_dip && battery_msg.voltage > 1.0  && battery_msg.voltage < prev_voltage * BATTERY_DIP) {
         RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL));
-    syslog(LOG_WARNING, "%s voltage dip %.2f", __FUNCTION__, battery_msg.voltage);
+        syslog(LOG_WARNING, "%s voltage dip %.2f", __FUNCTION__, battery_msg.voltage);
         skip_dip = 5;
     }
     if (skip_dip) skip_dip--;
@@ -500,7 +553,8 @@ void publishData()
     battery_msg.voltage = prev_voltage = battery_msg.voltage * 0.01 + prev_voltage * 0.99;
     EXECUTE_EVERY_N_MS(BATTERY_TIMER, {
         getBatteryPercentage(&battery_msg);
-        RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL)) });
+        RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL));
+    });
 #endif
 #ifdef ECHO_PIN
     EXECUTE_EVERY_N_MS(RANGE_TIMER, {

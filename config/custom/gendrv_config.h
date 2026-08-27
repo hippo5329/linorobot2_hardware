@@ -253,7 +253,7 @@ ROBOT ORIENTATION
 // #define BATTERY_MAX 12.6 // battery maximum voltage
 // #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
 // #define ECHO_PIN 32
-#define USE_SHORT_BRAKE // for shorter stopping distance
+#define USE_DUAL_CORE // Enable FreeRTOS dual-core task separation (strict 50Hz PID on Core 1)\n#define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 60 // Sec
 #define BOARD_INIT { \
     pinMode(MOTOR1_PWM, OUTPUT); \
