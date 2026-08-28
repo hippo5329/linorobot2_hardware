@@ -26,6 +26,8 @@ jobs:
   build-tools:
     name: Build Diagnostics & Tools on ROS ${{ inputs.ros_distro }}
     runs-on: ${{ inputs.os }}
+    env:
+      ROS_DISTRO: ${{ inputs.ros_distro }}
 
     steps:
       # Check out the repository
@@ -99,6 +101,7 @@ jobs:
       - name: Build ADC Calibration (adc_calibrate)
         shell: bash
         run: |
+          source /opt/ros/${{ inputs.ros_distro }}/setup.bash
           export PATH=$PATH:~/.platformio/penv/bin
           if [ -d "repo/adc_calibrate" ]; then
             cd repo/adc_calibrate
