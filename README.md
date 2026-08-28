@@ -508,7 +508,7 @@ pio run -e <your_board> -t upload
 
 Supported board environments: `pico`, `pico2`, `esp32`, `esp32s2`, `esp32s3`, `gendrv`.
 
-When flashed, the firmware spins each motor forward and in reverse for a controlled cycle, printing real-time RPM, max linear velocity, and calculated stopping distance via Serial (`115200` baud) and Syslog:
+When flashed, the firmware spins each motor forward and in reverse for a controlled cycle, printing real-time RPM, max linear velocity, and calculated stopping distance via Serial (`921600` baud) and Syslog:
 
 ```text
 MOTOR1 FWD RPM    280.5      0.0      0.0      0.0
@@ -526,7 +526,7 @@ pio run -e <your_board> -t upload
 
 Supported board environments: `pico`, `pico2`, `esp32`, `esp32s2`, `esp32s3`, `gendrv`.
 
-When flashed, the firmware measures kinematic linear/angular velocities, calculates discrete derivative accelerations ($m/s^2$, $rad/s^2$), correlates with IMU linear acceleration, and outputs time to reach 90% velocity along with stopping distance via Serial (`115200` baud) and Syslog:
+When flashed, the firmware measures kinematic linear/angular velocities, calculates discrete derivative accelerations ($m/s^2$, $rad/s^2$), correlates with IMU linear acceleration, and outputs time to reach 90% velocity along with stopping distance via Serial (`921600` baud) and Syslog:
 
 ```text
 MAX VEL   0.52   0.00 m/s    1.25 rad/s
