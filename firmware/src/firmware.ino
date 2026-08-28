@@ -161,10 +161,13 @@ MAG mag;
 void setup() 
 {
     pinMode(LED_PIN, OUTPUT);
-    Serial.begin(BAUDRATE);
 #ifdef ESP32
     Serial.setRxBufferSize(1024);
+#ifndef ARDUINO_USB_CDC_ON_BOOT
+    Serial.setTxBufferSize(1024);
 #endif
+#endif
+    Serial.begin(BAUDRATE);
 
 #ifdef BOARD_INIT // board specific setup, must include Wire.begin
     BOARD_INIT
@@ -236,7 +239,7 @@ void loop() {
 #endif
             if (state == AGENT_CONNECTED) 
             {
-                rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+                rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
             }
             break;
         case AGENT_DISCONNECTED:
@@ -491,7 +494,7 @@ void publishData()
 #ifdef BATTERY_DIP
     if (!skip_dip && battery_msg.voltage > 1.0  && battery_msg.voltage < prev_voltage * BATTERY_DIP) {
         RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL));
-    syslog(LOG_WARNING, "%s voltage dip %.2f", __FUNCTION__, battery_msg.voltage);
+        syslog(LOG_WARNING, "%s voltage dip %.2f", __FUNCTION__, battery_msg.voltage);
         skip_dip = 5;
     }
     if (skip_dip) skip_dip--;
@@ -499,7 +502,8 @@ void publishData()
     battery_msg.voltage = prev_voltage = battery_msg.voltage * 0.01 + prev_voltage * 0.99;
     EXECUTE_EVERY_N_MS(BATTERY_TIMER, {
         getBatteryPercentage(&battery_msg);
-        RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL)) });
+        RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL));
+    });
 #endif
 #ifdef ECHO_PIN
     EXECUTE_EVERY_N_MS(RANGE_TIMER, {
