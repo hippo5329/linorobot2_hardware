@@ -25,6 +25,24 @@ Supported targets:
 
 ---
 
+## 🚀 AI Robot Configuration Engine & Interactive Web UI
+
+Linorobot2 includes an AI-assisted **Robot Configuration Engine** and client-side **Web UI Studio** located in `tools/robot_config_engine/` that automates hardware rule validation, electrical safety pin checks, kinematics & physics calculations, and 1-click code generation for C++ headers (`config.h`), `platformio.ini`, and ROS 2 URDF Xacro files.
+
+### ⚡ 3-Step Quick Start with Web UI
+
+1. **Launch the Configuration Server**:
+   ```bash
+   cd tools/robot_config_engine/web
+   python3 server.py 8000
+   ```
+2. **Open the Web UI in your browser**:
+   Navigate to `http://localhost:8000`.
+3. **Configure & 1-Click Deploy**:
+   Select your reference build (e.g. Raspberry Pi Pico 2, ESP32, ESP32-S3), tune your wheel geometry and motor parameters with live kinematics HUD & electrical safety checks, and click **🚀 Run Full Deploy** to automatically merge configuration files, compile firmware, and flash your microcontroller!
+
+---
+
 ## Overview
 
 The linorobot2_hardware repo uses platformio to build microcontroller firmware for mobile robots based on micro-ROS.
