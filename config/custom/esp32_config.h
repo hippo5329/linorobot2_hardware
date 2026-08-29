@@ -31,7 +31,7 @@
 //uncomment the IMU you're using
 // #define USE_GY85_IMU
 // #define USE_BNO085_IMU
-// #define USE_MPU6050_IMU
+#define USE_MPU6050_IMU
 // #define USE_MPU9150_IMU
 // #define USE_MPU9250_IMU
 // #define USE_QMI8658_IMU
@@ -39,7 +39,7 @@
 // #define USE_AK8963_MAG
 // #define USE_AK8975_MAG
 // #define USE_AK09918_MAG
-// #define USE_QMC5883L_MAG
+#define USE_QMC5883L_MAG
 // #define MAG_BIAS { 0, 0, 0 }
 // #define IMU_TWEAK {}
 // #define MAG_TWEAK {}
@@ -230,6 +230,12 @@ ROBOT ORIENTATION
 #define LIDAR_SERIAL 1 // uart number
 #define LIDAR_BAUDRATE 230400
 #define LIDAR_PORT 8889
+
+#if defined(USE_WIFI) && defined(LIDAR_RXD)
+  #ifndef USE_LIDAR_UDP
+    #define USE_LIDAR_UDP
+  #endif
+#endif
 #define BAUDRATE 921600
 #define SDA_PIN 21 // specify I2C pins
 #define SCL_PIN 22
@@ -238,6 +244,10 @@ ROBOT ORIENTATION
 
 // battery voltage ADC pin
 #define BATTERY_PIN 33
+#define BATTERY_DIP 0.98  // battery voltage drop alert
+#define BATTERY_CAP 2.0  // battery capacity Ah
+#define BATTERY_MIN 9.0  // battery minimal voltage
+#define BATTERY_MAX 12.6 // battery maximum voltage
 // 3.3V ref, 12 bits ADC, 33k + 10k voltage divider
 // #define USE_ADC_LUT
 #ifdef USE_ADC_LUT
@@ -251,8 +261,8 @@ const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };
 #define BATTERY_ADJUST(v) ((v) * ((10 + 1) / 1) / 1000.0)
 #endif
 // #define USE_INA219
-// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
-// #define ECHO_PIN 32
+#define TRIG_PIN 19 // ultrasonic sensor HC-SR04
+#define ECHO_PIN 18
 #define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 60 // Sec
 #define BOARD_INIT { \

@@ -17,32 +17,26 @@
 
 #define LED_PIN LED_BUILTIN //used for debugging status
 
-//uncomment the base you're building
-#define LINO_BASE DIFFERENTIAL_DRIVE       // 2WD and Tracked robot w/ 2 motors
-// #define LINO_BASE SKID_STEER            // 4WD robot
-// #define LINO_BASE MECANUM               // Mecanum drive robot
-
-//uncomment the motor driver you're using
-// #define USE_GENERIC_2_IN_MOTOR_DRIVER      // Motor drivers with 2 Direction Pins(INA, INB) and 1 PWM(ENABLE) pin ie. L298, L293, VNH5019
-// #define USE_GENERIC_1_IN_MOTOR_DRIVER   // Motor drivers with 1 Direction Pin(INA) and 1 PWM(ENABLE) pin.
-#define USE_BTS7960_MOTOR_DRIVER        // BTS7970 Motor Driver using A4950 (<40V) module or DRV8833 (<10V)
-// #define USE_ESC_MOTOR_DRIVER            // Motor ESC for brushless motors
-
-//uncomment the IMU you're using
-// #define USE_GY85_IMU
-// #define USE_BNO085_IMU
-// #define USE_MPU6050_IMU
-// #define USE_MPU9150_IMU
-// #define USE_MPU9250_IMU
-// #define USE_QMI8658_IMU
-// #define USE_HMC5883L_MAG
-// #define USE_AK8963_MAG
-// #define USE_AK8975_MAG
-// #define USE_AK09918_MAG
-// #define USE_QMC5883L_MAG
-// #define MAG_BIAS { 0, 0, 0 }
-// #define IMU_TWEAK {}
-// #define MAG_TWEAK {}
+// Kinematics, Motor Drivers, and IMU Matrix across Pico board targets
+#if defined(PICO2W)
+    #define LINO_BASE MECANUM
+    #define USE_ESC_MOTOR_DRIVER
+    #define USE_BNO085_IMU
+#elif defined(PICO2)
+    #define LINO_BASE MECANUM
+    #define USE_GENERIC_1_IN_MOTOR_DRIVER
+    #define USE_QMI8658_IMU
+    #define USE_AK09918_MAG
+#elif defined(PICOW)
+    #define LINO_BASE SKID_STEER
+    #define USE_GENERIC_2_IN_MOTOR_DRIVER
+    #define USE_MPU9250_IMU
+    #define USE_AK8963_MAG
+#else
+    #define LINO_BASE DIFFERENTIAL_DRIVE
+    #define USE_BTS7960_MOTOR_DRIVER
+    #define USE_GY85_IMU
+#endif
 
 #define ACCEL_COV { 0.01, 0.01, 0.01 }
 #define GYRO_COV { 0.001, 0.001, 0.001 }
@@ -249,6 +243,10 @@ ROBOT ORIENTATION
 
 // battery voltage ADC pin
 #define BATTERY_PIN 28
+#define BATTERY_DIP 0.98  // battery voltage drop alert
+#define BATTERY_CAP 2.0  // battery capacity Ah
+#define BATTERY_MIN 9.0  // battery minimal voltage
+#define BATTERY_MAX 12.6 // battery maximum voltage
 // 3.3V ref, 12 bits ADC, 33k + 10k voltage divider
 // #define USE_ADC_LUT
 #ifdef USE_ADC_LUT
@@ -262,8 +260,8 @@ const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };
 // #define BATTERY_ADJUST(v) ((v) * ((10 + 1) / 1) / 1000.0)
 #endif
 // #define USE_INA219
-// #define TRIG_PIN 31 // ultrasonic sensor HC-SR04
-// #define ECHO_PIN 32
+#define TRIG_PIN 6 // ultrasonic sensor HC-SR04
+#define ECHO_PIN 7
 #define USE_SHORT_BRAKE // for shorter stopping distance
 // #define WDT_TIMEOUT 60 // Sec
 #define BOARD_INIT { \
