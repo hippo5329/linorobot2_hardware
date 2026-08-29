@@ -240,7 +240,7 @@ void loop() {
 #endif
             if (state == AGENT_CONNECTED) 
             {
-                rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+                rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
             }
             break;
         case AGENT_DISCONNECTED:
