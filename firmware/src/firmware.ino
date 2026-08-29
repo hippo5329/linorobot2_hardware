@@ -492,21 +492,30 @@ void publishData()
 #endif
     RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
 #if defined(BATTERY_PIN) || defined(USE_INA219)
+#ifdef BATTERY_DIP
     battery_msg = getBattery();
     battery_msg.header.stamp.sec = time_stamp.tv_sec;
     battery_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-#ifdef BATTERY_DIP
-    if (!skip_dip && battery_msg.voltage > 1.0  && battery_msg.voltage < prev_voltage * BATTERY_DIP) {
+    if (!skip_dip && battery_msg.voltage > 1.0 && battery_msg.voltage < prev_voltage * BATTERY_DIP) {
         RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL));
-    syslog(LOG_WARNING, "%s voltage dip %.2f", __FUNCTION__, battery_msg.voltage);
+        syslog(LOG_WARNING, "%s voltage dip %.2f", __FUNCTION__, battery_msg.voltage);
         skip_dip = 5;
     }
     if (skip_dip) skip_dip--;
-#endif
     battery_msg.voltage = prev_voltage = battery_msg.voltage * 0.01 + prev_voltage * 0.99;
     EXECUTE_EVERY_N_MS(BATTERY_TIMER, {
         getBatteryPercentage(&battery_msg);
-        RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL)) });
+        RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL));
+    });
+#else
+    EXECUTE_EVERY_N_MS(BATTERY_TIMER, {
+        battery_msg = getBattery();
+        battery_msg.header.stamp.sec = time_stamp.tv_sec;
+        battery_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+        getBatteryPercentage(&battery_msg);
+        RCSOFTCHECK(rcl_publish(&battery_publisher, &battery_msg, NULL));
+    });
+#endif
 #endif
 #ifdef ECHO_PIN
     EXECUTE_EVERY_N_MS(RANGE_TIMER, {
