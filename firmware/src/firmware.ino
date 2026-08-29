@@ -117,6 +117,13 @@ unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
 float prev_voltage;
 
+#if defined(USE_DUAL_CORE) && defined(ESP32) && !defined(CONFIG_FREERTOS_UNICORE)
+#define USE_ESP32_DUAL_CORE 1
+TaskHandle_t controlTaskHandle = NULL;
+portMUX_TYPE controlMux = portMUX_INITIALIZER_UNLOCKED;
+void controlTask(void *pvParameters);
+#endif
+
 enum states 
 {
   WAITING_AGENT,
@@ -217,6 +224,17 @@ void setup()
 #ifdef BOARD_INIT_LATE // board specific setup
     BOARD_INIT_LATE
 #endif
+#ifdef USE_ESP32_DUAL_CORE
+    xTaskCreatePinnedToCore(
+        controlTask,
+        "controlTask",
+        4096,
+        NULL,
+        configMAX_PRIORITIES - 2,
+        &controlTaskHandle,
+        0
+    );
+#endif
     syslog(LOG_INFO, "%s Ready %lu", __FUNCTION__, millis());
 }
 
@@ -267,7 +285,9 @@ void controlCallback(rcl_timer_t * timer, int64_t last_call_time)
     RCLC_UNUSED(last_call_time);
     if (timer != NULL) 
     {
+#ifndef USE_ESP32_DUAL_CORE
        moveBase();
+#endif
        publishData();
     }
 }
@@ -398,6 +418,9 @@ bool destroyEntities()
 
 void fullStop()
 {
+#ifdef USE_ESP32_DUAL_CORE
+    portENTER_CRITICAL(&controlMux);
+#endif
     twist_msg.linear.x = 0.0;
     twist_msg.linear.y = 0.0;
     twist_msg.angular.z = 0.0;
@@ -406,7 +429,28 @@ void fullStop()
     motor2_controller.brake();
     motor3_controller.brake();
     motor4_controller.brake();
+#ifdef USE_ESP32_DUAL_CORE
+    portEXIT_CRITICAL(&controlMux);
+#endif
 }
+
+#ifdef USE_ESP32_DUAL_CORE
+void controlTask(void *pvParameters)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(CONTROL_TIMER);
+    for (;;)
+    {
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        if (state == AGENT_CONNECTED)
+        {
+            portENTER_CRITICAL(&controlMux);
+            moveBase();
+            portEXIT_CRITICAL(&controlMux);
+        }
+    }
+}
+#endif
 
 void moveBase()
 {
@@ -460,7 +504,13 @@ void moveBase()
 void publishData()
 {
     static unsigned skip_dip = 0;
+#ifdef USE_ESP32_DUAL_CORE
+    portENTER_CRITICAL(&controlMux);
     odom_msg = odometry.getData();
+    portEXIT_CRITICAL(&controlMux);
+#else
+    odom_msg = odometry.getData();
+#endif
     imu_msg = imu.getData();
 #ifdef USE_FAKE_IMU
     imu_msg.angular_velocity.z = odom_msg.twist.twist.angular.z;
