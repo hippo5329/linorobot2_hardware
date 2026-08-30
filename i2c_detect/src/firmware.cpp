@@ -140,7 +140,7 @@ void scanAndIdentify() {
         if (addr >= 0x0C && addr <= 0x0F) {
             uint8_t wia2 = readRegister8(addr, 0x01);
             uint8_t wia = readRegister8(addr, 0x00);
-            if (wia2 == 0x09) {
+            if (wia2 == 0x09 || addr == 0x0C) {
                 addDetected(addr, "mag", "AK09918", "USE_AK09918_MAG", "AK09918 3-Axis Precision Magnetometer");
                 continue;
             } else if (wia == 0x48) {
@@ -161,15 +161,10 @@ void scanAndIdentify() {
             }
         }
 
-        // 7. Check Current / Power Monitors: INA219 (0x40..0x45)
+        // 7. Check Current / Power Monitors: INA219 (0x40..0x45, Waveshare GenDrv @ 0x42)
         if (addr >= 0x40 && addr <= 0x45) {
-            uint16_t mfg = readRegister16BE(addr, 0xFE);
-            uint16_t die = readRegister16BE(addr, 0xFF);
-            uint16_t cfg = readRegister16BE(addr, 0x00);
-            if (mfg == 0x5449 || cfg == 0x399F || (cfg & 0x3FFF) == 0x399F) {
-                addDetected(addr, "current", "INA219", "USE_INA219", "INA219 High-Side DC Current & Power Sensor");
-                continue;
-            }
+            addDetected(addr, "current", "INA219", "USE_INA219", "INA219 High-Side DC Current & Power Sensor");
+            continue;
         }
 
         // 8. Check BMP280 / BME280 (0x76 or 0x77)
