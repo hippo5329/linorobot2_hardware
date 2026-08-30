@@ -161,10 +161,14 @@ MAG mag;
 void setup() 
 {
     pinMode(LED_PIN, OUTPUT);
-    Serial.begin(BAUDRATE);
 #ifdef ESP32
+    Serial.end();
     Serial.setRxBufferSize(1024);
+#ifndef ARDUINO_USB_CDC_ON_BOOT
+    Serial.setTxBufferSize(1024);
 #endif
+#endif
+    Serial.begin(BAUDRATE);
 
 #ifdef BOARD_INIT // board specific setup, must include Wire.begin
     BOARD_INIT
