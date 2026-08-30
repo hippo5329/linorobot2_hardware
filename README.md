@@ -573,6 +573,19 @@ In the Web UI Studio (**Tab 3 Sensors**), clicking **`⚡ Auto-Detect Sensors`**
 
 ---
 
+### 📡 1-Click UDP Syslog Server & Live Telemetry Streamer
+
+For microcontrollers configured with wireless telemetry (e.g. Waveshare General Driver `GENDRV` or `ESP32`), the Web UI Studio provides a built-in multi-threaded UDP Syslog server and live stream receiver:
+* **Zero-Configuration Setup**: Automatically binds to standard UDP port `514` (with fallback to `5140` if unprivileged) and captures incoming MCU debug logs over WiFi.
+* **Live SSE Telemetry Streaming**: Streams syslog datagrams in real time directly to the Web UI terminal console with high-visibility cyan `[SYSLOG]` badges, timestamps, and client IP addresses.
+* **Persistent Disk Logging**: All received telemetry is automatically saved and rotated into `logs/syslog_YYYYMMDD.log` for offline diagnostics and post-run analysis.
+* **API Endpoints**:
+  - `POST /api/syslog/start`: Launch background UDP receiver on specified port (e.g. `{"port": 514}`).
+  - `POST /api/syslog/stop`: Gracefully terminate UDP receiver and report total captured packet count.
+  - `GET /api/syslog/status`: Retrieve live server state, packet counters, active log file, and last message.
+  - `GET /api/syslog/stream`: Real-time Server-Sent Events (SSE) stream for client consoles.
+  - `GET /api/syslog/logs`: List log files in `logs/` and inspect recent lines.
+
 ## ESP32 ADC Calibration Utility (`adc_calibrate`)
 
 The `adc_calibrate` standalone firmware utility characterizes the non-linear response of the ESP32 SAR ADC by sweeping internal DAC Channel 1 (GPIO 25) against `BATTERY_PIN` / `ADC_PIN` and generating an interpolated 4096-entry Look-Up Table (LUT) to linearize battery voltage telemetry.
