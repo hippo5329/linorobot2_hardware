@@ -554,6 +554,25 @@ time to 0.9x max vel   0.24 sec
 distance to stop   0.04 m
 ```
 
+## 🔍 1-Click AI I2C Sensor Auto-Detection & Driver Auto-Configuration (`i2c_detect`)
+
+The AI-maintained `i2c_detect` standalone utility scans the active I2C bus @ 400 kHz, probes `WHO_AM_I` and hardware identification registers across all major robotics sensors, and dumps machine-readable JSON over serial:
+
+```bash
+cd linorobot2_hardware/i2c_detect
+pio run -e <your_board> -t upload
+```
+
+Supported chip signatures:
+* **IMUs**: `QMI8658` (`0x6B`/`0x6A`), `MPU6050`/`MPU9250`/`MPU6500` (`0x68`/`0x69`), `BNO085`/`BNO080` (`0x4A`/`0x4B`), `BNO055` (`0x28`/`0x29`), `ADXL345`/`ITG3200` (`GY85`).
+* **Magnetometers**: `AK09918` (`0x0C`), `AK8963`/`AK8975` (`0x0C`), `QMC5883L` (`0x0D`), `HMC5883L` (`0x1E`).
+* **Power Monitors**: `INA219` / `INA226` (`0x40`..`0x45`, including Waveshare GenDrv @ `0x42`).
+* **Barometers**: `BMP280` / `BME280` (`0x76`/`0x77`).
+
+In the Web UI Studio (**Tab 3 Sensors**), clicking **`⚡ Auto-Detect Sensors`** executes this probe automatically in ~2 seconds and selects the matching drivers with live UI state synchronization.
+
+---
+
 ## ESP32 ADC Calibration Utility (`adc_calibrate`)
 
 The `adc_calibrate` standalone firmware utility characterizes the non-linear response of the ESP32 SAR ADC by sweeping internal DAC Channel 1 (GPIO 25) against `BATTERY_PIN` / `ADC_PIN` and generating an interpolated 4096-entry Look-Up Table (LUT) to linearize battery voltage telemetry.
@@ -735,4 +754,4 @@ Once the hardware is done, you can go back to [linorobot2](https://github.com/li
 #### Adding firmware compilation tests for a new ROS distro
 To add a new distro to the CI tests, modify the `rolling` (default) branch. Inside of `.github/workflows`, duplicate an existing distro workflow YAML file. For example, to add ROS2 Iron support, one could copy `humble-firmware-build.yml` to `iron-firmware-build.yml`. Assuming that an `iron` branch exists (if not one could create one using the `humble` branch as a base and modify as necessary), inside of `iron-firmware-build.yml`, rename all instances of the word `humble` with `iron`. It would be as simple as using 'find and replace' in many IDEs. Commit these changes to a feature branch, create a PR to merge into the `rolling` branch, and then backport the PR to other branches. It is only necessary to have `iron-firmware-build.yml` on the `rolling` and `iron` branch, however it may be simpler to keep the branches in sync by having every workflow file on all branches.
 
-Lastly, the new branch must be added to the CI table written in Markdown at the top of README.md that displays the status of each branch using badges. This table is organized with the most current ROS2 branch at the top, which is always `rolling`, and then in descending chronological order. Adding a new distro can be done by copying an existing row of the table, pasting in the appropriate position, and changing the titles and branch names in the relative paths. 
+Lastly, the new branch must be added to the CI table written in Markdown at the top of README.md that displays the status of each branch using badges. This table is organized with the most current ROS2 branch at the top, which is always `rolling`, and then in descending chronological order. Adding a new distro can be done by copying an existing row of the table, pasting in the appropriate position, and changing the titles and branch names in the relative paths.
