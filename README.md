@@ -25,6 +25,24 @@ Supported targets:
 
 ---
 
+## 🚀 AI Robot Configuration Engine & Interactive Web UI
+
+Linorobot2 includes an AI-assisted **Robot Configuration Engine** and client-side **Web UI Studio** located in `tools/robot_config_engine/` that automates hardware rule validation, electrical safety pin checks, kinematics & physics calculations, and 1-click code generation for C++ headers (`config.h`), `platformio.ini`, and ROS 2 URDF Xacro files.
+
+### ⚡ 3-Step Quick Start with Web UI
+
+1. **Launch the Configuration Server**:
+   ```bash
+   cd tools/robot_config_engine/web
+   python3 server.py 8000
+   ```
+2. **Open the Web UI in your browser**:
+   Navigate to `http://localhost:8000`.
+3. **Configure & 1-Click Deploy**:
+   Select your reference build (e.g. Raspberry Pi Pico 2, ESP32, ESP32-S3), tune your wheel geometry and motor parameters with live kinematics HUD & electrical safety checks, and click **🚀 Run Full Deploy** to automatically merge configuration files, compile firmware, and flash your microcontroller!
+
+---
+
 ## Overview
 
 The linorobot2_hardware repo uses platformio to build microcontroller firmware for mobile robots based on micro-ROS.
@@ -508,7 +526,7 @@ pio run -e <your_board> -t upload
 
 Supported board environments: `pico`, `pico2`, `esp32`, `esp32s2`, `esp32s3`, `gendrv`.
 
-When flashed, the firmware spins each motor forward and in reverse for a controlled cycle, printing real-time RPM, max linear velocity, and calculated stopping distance via Serial (`115200` baud) and Syslog:
+When flashed, the firmware spins each motor forward and in reverse for a controlled cycle, printing real-time RPM, max linear velocity, and calculated stopping distance via Serial (`921600` baud) and Syslog:
 
 ```text
 MOTOR1 FWD RPM    280.5      0.0      0.0      0.0
@@ -526,7 +544,7 @@ pio run -e <your_board> -t upload
 
 Supported board environments: `pico`, `pico2`, `esp32`, `esp32s2`, `esp32s3`, `gendrv`.
 
-When flashed, the firmware measures kinematic linear/angular velocities, calculates discrete derivative accelerations ($m/s^2$, $rad/s^2$), correlates with IMU linear acceleration, and outputs time to reach 90% velocity along with stopping distance via Serial (`115200` baud) and Syslog:
+When flashed, the firmware measures kinematic linear/angular velocities, calculates discrete derivative accelerations ($m/s^2$, $rad/s^2$), correlates with IMU linear acceleration, and outputs time to reach 90% velocity along with stopping distance via Serial (`921600` baud) and Syslog:
 
 ```text
 MAX VEL   0.52   0.00 m/s    1.25 rad/s
