@@ -3120,6 +3120,20 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
                   }
                 }
 
+                
+                // Live I2C Sensor Detection JSON Parser
+                if (textLine.includes("[I2C_JSON]")) {
+                  try {
+                    const jsonStr = textLine.substring(textLine.indexOf("[I2C_JSON]") + 10).trim();
+                    const i2cData = JSON.parse(jsonStr);
+                    if (i2cData.status === "ok") {
+                      handleI2cAutoDetectedSensors(i2cData);
+                    }
+                  } catch (err) {
+                    console.error("Failed to parse I2C_JSON:", err);
+                  }
+                }
+
                 adcStreamBuffer += payload.line + "\n";
                 if (adcStreamBuffer.includes("const int16_t ADC_LUT[4096]") && adcStreamBuffer.includes("};")) {
                   try {
@@ -3984,4 +3998,84 @@ function initRos2TopicInspector() {
 
   fetchRos2Topics();
   setInterval(fetchRos2Topics, 10000);
+}
+
+// -----------------------------------------------------------------------------
+// AI I2C Sensor Auto-Detection & Auto-Configuration Handler
+// -----------------------------------------------------------------------------
+function handleI2cAutoDetectedSensors(data) {
+  console.log("Auto-detected I2C Hardware:", data);
+  const resultsDiv = document.getElementById("i2c-detect-results");
+  let summaryParts = [];
+
+  // 1. Auto-select IMU driver
+  const imuSelect = document.getElementById("cfg-imu");
+  if (imuSelect) {
+    if (data.imu && data.imu !== "NONE") {
+      for (let opt of imuSelect.options) {
+        if (opt.value.toUpperCase().includes(data.imu.toUpperCase())) {
+          imuSelect.value = opt.value;
+          summaryParts.push(`IMU: <strong>${data.imu}</strong>`);
+          break;
+        }
+      }
+    } else {
+      imuSelect.value = "FAKE";
+    }
+    imuSelect.dispatchEvent(new Event("change"));
+  }
+
+  // 2. Auto-select Magnetometer driver
+  const magSelect = document.getElementById("cfg-mag");
+  if (magSelect) {
+    if (data.mag && data.mag !== "NONE") {
+      for (let opt of magSelect.options) {
+        if (opt.value.toUpperCase().includes(data.mag.toUpperCase())) {
+          magSelect.value = opt.value;
+          summaryParts.push(`MAG: <strong>${data.mag}</strong>`);
+          break;
+        }
+      }
+    } else {
+      magSelect.value = "NONE";
+    }
+    magSelect.dispatchEvent(new Event("change"));
+  }
+
+  // 3. Auto-configure Current / Power Monitor
+  const batSelect = document.getElementById("cfg-battery");
+  if (batSelect) {
+    if (data.current && data.current.includes("INA219")) {
+      batSelect.value = "INA219";
+      summaryParts.push(`Power: <strong>INA219</strong>`);
+    }
+    batSelect.dispatchEvent(new Event("change"));
+  }
+
+  // Update UI results box
+  if (resultsDiv) {
+    resultsDiv.style.display = "block";
+    if (summaryParts.length > 0) {
+      resultsDiv.innerHTML = `✅ <span style="color:#34d399;">Auto-Configured Drivers:</span> ${summaryParts.join(" | ")} <span class="badge-pill badge-ok ml-2">Drivers Applied</span>`;
+    } else {
+      resultsDiv.innerHTML = `ℹ️ <span style="color:#94a3b8;">No physical I2C chips detected. Configured to Bare Module mode (Fake IMU/MAG).</span>`;
+    }
+  }
+
+  // Regenerate configuration headers & code
+  if (typeof updateGeneratedCode === "function") {
+    updateGeneratedCode();
+  }
+
+  const toastMsg = summaryParts.length > 0
+    ? `🎉 Auto-Detected: ${summaryParts.join(", ")}! Drivers configured.`
+    : `ℹ️ Bus scanned: No I2C chips detected (Bare Module Mode preserved).`;
+  showToast(toastMsg);
+}
+
+function runI2cSensorAutoDetect() {
+  const name = state.robot.name || "linorobot2";
+  const port = document.getElementById("auto-flash-port") ? document.getElementById("auto-flash-port").value.trim() : "/dev/ttyACM0";
+  const cmd = `cd i2c_detect && pio run -e ${name} -t upload`;
+  executeCommandInTerminal(cmd, `🔍 AI Auto-Detecting I2C Sensors (${name} -> ${port})`);
 }
