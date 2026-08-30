@@ -384,6 +384,12 @@ function initEventListeners() {
 
   // Import JSON File
   document.getElementById("import-file").addEventListener("change", handleImportFile);
+
+  // AI I2C Sensor Auto-Detection Button
+  const btnI2cDetect = document.getElementById("btn-auto-detect-i2c");
+  if (btnI2cDetect) {
+    btnI2cDetect.addEventListener("click", runI2cSensorAutoDetect);
+  }
 }
 
 // Load a Preset into State and Form
@@ -4074,10 +4080,27 @@ function handleI2cAutoDetectedSensors(data) {
 }
 
 function runI2cSensorAutoDetect() {
-  const board = document.getElementById("cfg-board") ? document.getElementById("cfg-board").value : "gendrv";
+  const mcuEl = document.getElementById("cfg-mcu");
+  const mcu = mcuEl ? mcuEl.value.toLowerCase() : "gendrv";
+  let envName = "esp32";
+  let baud = 921600;
+  if (mcu.includes("gendrv")) {
+    envName = "gendrv";
+    baud = 1500000;
+  } else if (mcu.includes("pico2")) {
+    envName = "pico2";
+  } else if (mcu.includes("pico")) {
+    envName = "pico";
+  } else if (mcu.includes("s3")) {
+    envName = "esp32s3";
+  }
+
   const portSelect = document.getElementById("auto-flash-port");
-  const port = (portSelect && portSelect.value) ? portSelect.value.trim() : "/dev/ttyUSB0";
-  const uploadFlag = port ? ` --upload-port ${port}` : "";
-  const cmd = `cd i2c_detect && pio run -e ${board} -t upload${uploadFlag}`;
-  executeCommandInTerminal(cmd, `🔍 AI Auto-Detecting I2C Sensors (${board} -> ${port})`);
+  const port = (portSelect && portSelect.value) ? portSelect.value.trim() : (envName === "gendrv" ? "/dev/ttyUSB0" : "/dev/ttyACM0");
+  const uploadFlag = (port && !port.includes("BOOTSEL")) ? ` --upload-port ${port}` : "";
+
+  // Flash i2c_detect and stream output via python miniterm reader
+  const monitorPy = "import serial, time; s = serial.Serial('" + port + "', " + baud + ", timeout=2); time.sleep(0.4); t = time.time();\nwhile time.time() - t < 3:\n  l = s.readline().decode('utf-8', errors='ignore').strip()\n  if l: print(l)\ns.close()";
+  const cmd = `cd i2c_detect && pio run -e ${envName} -t upload${uploadFlag} && ~/.platformio/penv/bin/python -c "${monitorPy}"`;
+  executeCommandInTerminal(cmd, `🔍 AI Auto-Detecting I2C Sensors (${envName} -> ${port})`);
 }
