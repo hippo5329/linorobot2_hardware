@@ -323,6 +323,21 @@
 
         <!-- Tab 3: Sensors -->
         <div class="tab-pane" id="tab-sensors">
+          <!-- AI I2C Sensor Auto-Detection Card -->
+          <div class="card p-3 mb-3 border-accent-glow" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.7)); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; margin-bottom: 1.25rem;">
+            <div class="flex-between" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+              <div>
+                <h4 style="color:#38bdf8; font-size:1.05rem; margin-bottom:0.25rem; font-weight: 600;">🤖 AI I2C Sensor Auto-Detection</h4>
+                <p class="text-muted" style="font-size:0.85rem; margin:0;">Probe active I2C bus, identify IMU / Mag / Current sensor chips via WHO_AM_I registers, and auto-select matching drivers.</p>
+              </div>
+              <button type="button" id="btn-auto-detect-i2c" class="btn btn-accent" style="white-space:nowrap; padding:0.6rem 1.2rem; cursor: pointer;">
+                <span class="btn-icon">⚡</span>
+                <span><strong>Auto-Detect Sensors</strong></span>
+              </button>
+            </div>
+            <div id="i2c-detect-results" class="mt-2" style="display:none; padding:0.6rem; background:rgba(0,0,0,0.3); border-radius:6px; font-size:0.85rem; margin-top: 0.75rem;"></div>
+          </div>
+
           <div class="form-section">
             <h2 class="section-title">IMU, Magnetometer & Battery Peripherals</h2>
             <div class="form-grid">
