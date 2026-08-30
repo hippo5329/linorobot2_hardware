@@ -4074,8 +4074,10 @@ function handleI2cAutoDetectedSensors(data) {
 }
 
 function runI2cSensorAutoDetect() {
-  const name = state.robot.name || "linorobot2";
-  const port = document.getElementById("auto-flash-port") ? document.getElementById("auto-flash-port").value.trim() : "/dev/ttyACM0";
-  const cmd = `cd i2c_detect && pio run -e ${name} -t upload`;
-  executeCommandInTerminal(cmd, `🔍 AI Auto-Detecting I2C Sensors (${name} -> ${port})`);
+  const board = document.getElementById("cfg-board") ? document.getElementById("cfg-board").value : "gendrv";
+  const portSelect = document.getElementById("auto-flash-port");
+  const port = (portSelect && portSelect.value) ? portSelect.value.trim() : "/dev/ttyUSB0";
+  const uploadFlag = port ? ` --upload-port ${port}` : "";
+  const cmd = `cd i2c_detect && pio run -e ${board} -t upload${uploadFlag}`;
+  executeCommandInTerminal(cmd, `🔍 AI Auto-Detecting I2C Sensors (${board} -> ${port})`);
 }
