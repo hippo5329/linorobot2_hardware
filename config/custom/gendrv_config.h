@@ -227,7 +227,9 @@ ROBOT ORIENTATION
 #define LIDAR_SERIAL 1 // uart number
 #define LIDAR_BAUDRATE 230400
 #define LIDAR_PORT 8889
-#define BAUDRATE 921600
+#ifndef BAUDRATE
+#define BAUDRATE 1500000 // 1.5M baud for CP2102N USB bridge (deterministic 50Hz with 3 sensor topics)
+#endif
 #define SDA_PIN 32 // specify I2C pins
 #define SCL_PIN 33
 #define NODE_NAME "gendrv"
