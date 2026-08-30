@@ -13,6 +13,10 @@ import sys
 import json
 import time
 import signal
+import socket
+import datetime
+import collections
+import queue
 import platform
 import threading
 import subprocess
@@ -35,6 +39,196 @@ from tools.robot_config_engine.parser import parse_header_to_spec, merge_configu
 
 active_process = None
 active_process_lock = threading.Lock()
+
+class SyslogManager:
+    """
+    Lightweight, multi-threaded UDP Syslog server & real-time telemetry broadcaster.
+    Listens on UDP (default port 514 with auto-fallback to 5140 for non-root),
+    appends timestamped telemetry logs to repo logs/syslog_YYYYMMDD.log,
+    and broadcasts events in real-time to Web UI SSE subscribers.
+    """
+    def __init__(self, repo_root):
+        self.repo_root = repo_root
+        self.logs_dir = os.path.join(repo_root, "logs")
+        os.makedirs(self.logs_dir, exist_ok=True)
+        self.sock = None
+        self.thread = None
+        self.is_running = False
+        self.port = 514
+        self.bound_port = 514
+        self.packets_received = 0
+        self.last_sender = ""
+        self.last_message = ""
+        self.last_timestamp = ""
+        self.recent_logs = collections.deque(maxlen=200)
+        self.subscribers = set()
+        self.subscribers_lock = threading.Lock()
+        self.lock = threading.Lock()
+
+    def get_current_log_filepath(self):
+        date_str = datetime.datetime.now().strftime("%Y%m%d")
+        return os.path.join(self.logs_dir, f"syslog_{date_str}.log")
+
+    def start(self, requested_port=514):
+        with self.lock:
+            if self.is_running:
+                return {
+                    "status": "already_running",
+                    "port": self.bound_port,
+                    "logfile": os.path.relpath(self.get_current_log_filepath(), self.repo_root),
+                    "packets": self.packets_received
+                }
+
+            try:
+                self.port = int(requested_port)
+            except Exception:
+                self.port = 514
+
+            ports_to_try = [self.port]
+            if self.port != 5140 and 5140 not in ports_to_try:
+                ports_to_try.append(5140)
+            if 5514 not in ports_to_try:
+                ports_to_try.append(5514)
+
+            bound = False
+            last_err = None
+            for p in ports_to_try:
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind(("0.0.0.0", p))
+                    self.sock = s
+                    self.bound_port = p
+                    bound = True
+                    break
+                except Exception as e:
+                    last_err = e
+                    continue
+
+            if not bound:
+                raise RuntimeError(f"Could not bind UDP syslog port (tried {ports_to_try}): {last_err}")
+
+            self.is_running = True
+            self.thread = threading.Thread(target=self._listen_loop, daemon=True)
+            self.thread.start()
+
+            return {
+                "status": "running",
+                "port": self.bound_port,
+                "requested_port": self.port,
+                "logfile": os.path.relpath(self.get_current_log_filepath(), self.repo_root),
+                "packets": self.packets_received,
+                "fallback": self.bound_port != self.port
+            }
+
+    def stop(self):
+        with self.lock:
+            if not self.is_running:
+                return {"status": "stopped", "port": self.bound_port, "packets": self.packets_received}
+            self.is_running = False
+            if self.sock:
+                try:
+                    dummy = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    dummy.sendto(b"__SHUTDOWN__", ("127.0.0.1", self.bound_port))
+                    dummy.close()
+                    self.sock.close()
+                except Exception:
+                    pass
+                self.sock = None
+
+            return {"status": "stopped", "port": self.bound_port, "packets": self.packets_received}
+
+    def _listen_loop(self):
+        while self.is_running:
+            try:
+                if not self.sock:
+                    break
+                data, addr = self.sock.recvfrom(4096)
+                if not self.is_running:
+                    break
+                if data == b"__SHUTDOWN__":
+                    continue
+
+                raw_text = data.decode("utf-8", errors="replace").strip()
+                now = datetime.datetime.now()
+                time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+                client_str = f"{addr[0]}:{addr[1]}"
+
+                pri = None
+                clean_text = raw_text
+                if raw_text.startswith("<") and ">" in raw_text[:6]:
+                    pri_end = raw_text.index(">")
+                    try:
+                        pri = int(raw_text[1:pri_end])
+                        clean_text = raw_text[pri_end+1:].strip()
+                    except ValueError:
+                        pass
+
+                log_entry = {
+                    "time": time_str,
+                    "sender": client_str,
+                    "ip": addr[0],
+                    "port": addr[1],
+                    "pri": pri,
+                    "message": clean_text,
+                    "raw": raw_text
+                }
+
+                formatted_line = f"[{time_str}] [{client_str}] {clean_text}\n"
+
+                # Append to log file
+                log_file = self.get_current_log_filepath()
+                try:
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write(formatted_line)
+                except Exception:
+                    pass
+
+                self.packets_received += 1
+                self.last_sender = client_str
+                self.last_message = clean_text
+                self.last_timestamp = time_str
+                self.recent_logs.append(log_entry)
+
+                self._broadcast(log_entry)
+            except Exception:
+                if not self.is_running:
+                    break
+                time.sleep(0.05)
+
+    def subscribe(self, q):
+        with self.subscribers_lock:
+            self.subscribers.add(q)
+
+    def unsubscribe(self, q):
+        with self.subscribers_lock:
+            self.subscribers.discard(q)
+
+    def _broadcast(self, log_entry):
+        with self.subscribers_lock:
+            for q in list(self.subscribers):
+                try:
+                    q.put_nowait(log_entry)
+                except Exception:
+                    pass
+
+    def get_status(self):
+        cur_file = self.get_current_log_filepath()
+        file_size = os.path.getsize(cur_file) if os.path.exists(cur_file) else 0
+        return {
+            "running": self.is_running,
+            "port": self.bound_port,
+            "requested_port": self.port,
+            "logfile": os.path.relpath(cur_file, self.repo_root),
+            "filesize": file_size,
+            "packets": self.packets_received,
+            "last_sender": self.last_sender,
+            "last_message": self.last_message,
+            "last_timestamp": self.last_timestamp,
+            "recent_count": len(self.recent_logs)
+        }
+
+syslog_manager = SyslogManager(REPO_ROOT)
 
 
 def get_port_usb_details(port_path):
@@ -259,6 +453,94 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         
+        if parsed.path == "/api/syslog/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            try:
+                self.wfile.write(json.dumps({"status": "ok", **syslog_manager.get_status()}).encode("utf-8"))
+            except Exception:
+                pass
+            return
+
+        if parsed.path == "/api/syslog/logs":
+            # List available log files and optionally read tail lines
+            qs = parse_qs(parsed.query)
+            tail_count = int(qs.get("tail", [50])[0])
+            files = []
+            if os.path.exists(syslog_manager.logs_dir):
+                for f in sorted(os.listdir(syslog_manager.logs_dir), reverse=True):
+                    if f.endswith(".log"):
+                        fp = os.path.join(syslog_manager.logs_dir, f)
+                        files.append({
+                            "name": f,
+                            "path": os.path.relpath(fp, REPO_ROOT),
+                            "size": os.path.getsize(fp),
+                            "mtime": os.path.getmtime(fp)
+                        })
+
+            current_log = syslog_manager.get_current_log_filepath()
+            lines = []
+            if os.path.exists(current_log):
+                try:
+                    with open(current_log, "r", encoding="utf-8", errors="replace") as f:
+                        all_lines = f.readlines()
+                        lines = [l.strip() for l in all_lines[-tail_count:]]
+                except Exception:
+                    pass
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            try:
+                self.wfile.write(json.dumps({
+                    "status": "ok",
+                    "files": files,
+                    "current_file": os.path.relpath(current_log, REPO_ROOT),
+                    "lines": lines
+                }).encode("utf-8"))
+            except Exception:
+                pass
+            return
+
+        if parsed.path == "/api/syslog/stream":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            q = queue.Queue(maxsize=100)
+            syslog_manager.subscribe(q)
+
+            # Send initial status
+            try:
+                status_init = f"event: status\ndata: {json.dumps(syslog_manager.get_status())}\n\n"
+                self.wfile.write(status_init.encode("utf-8"))
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                syslog_manager.unsubscribe(q)
+                return
+
+            try:
+                while True:
+                    try:
+                        entry = q.get(timeout=2.0)
+                        msg = f"event: syslog\ndata: {json.dumps(entry)}\n\n"
+                        self.wfile.write(msg.encode("utf-8"))
+                        self.wfile.flush()
+                    except queue.Empty:
+                        self.wfile.write(b": ping\n\n")
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            finally:
+                syslog_manager.unsubscribe(q)
+            return
+
         if parsed.path == "/api/ros2/topics":
             # Discover active ROS 2 topics, message types, and default known rates
             topics = []
@@ -493,6 +775,38 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         global active_process
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/syslog/start":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                data = {}
+            req_port = data.get("port", 514)
+            try:
+                res = syslog_manager.start(req_port)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/syslog/stop":
+            res = syslog_manager.stop()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
 
         if parsed.path == "/api/parse":
             content_length = int(self.headers.get("Content-Length", 0))

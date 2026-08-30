@@ -686,7 +686,10 @@ function updateDynamicUIState() {
   document.getElementById("row-enc-4").style.display = is4WD ? "table-row" : "none";
 
   // WiFi & Serial Baudrate Settings
-  document.getElementById("wifi-config-box").style.display = transport === "WIFI_UDP" ? "flex" : "none";
+  const mcuVal = document.getElementById("cfg-mcu") ? document.getElementById("cfg-mcu").value : "";
+  const isWifiMcu = mcuVal.includes("W") || mcuVal.includes("ESP32") || mcuVal === "GENDRV";
+  const wifiTelemetry = document.getElementById("cfg-wifi-telemetry") ? document.getElementById("cfg-wifi-telemetry").checked : false;
+  document.getElementById("wifi-config-box").style.display = (transport === "WIFI_UDP" || (isWifiMcu && wifiTelemetry)) ? "block" : "none";
   if (document.getElementById("group-serial-baudrate")) {
     document.getElementById("group-serial-baudrate").style.display = transport === "SERIAL" ? "block" : "none";
   }
@@ -3700,6 +3703,7 @@ async function saveConfigToFirmware() {
 
   // Existing Config & Merge Handlers
   loadExistingConfigsList();
+  initSyslogControls();
   const btnLoadCfg = document.getElementById("btn-load-config");
   if (btnLoadCfg) {
     btnLoadCfg.addEventListener("click", () => {
@@ -4103,4 +4107,243 @@ function runI2cSensorAutoDetect() {
   const monitorPy = "import serial, time; s = serial.Serial('" + port + "', " + baud + ", timeout=2); time.sleep(0.4); t = time.time();\nwhile time.time() - t < 3:\n  l = s.readline().decode('utf-8', errors='ignore').strip()\n  if l: print(l)\ns.close()";
   const cmd = `cd i2c_detect && pio run -e ${envName} -t upload${uploadFlag} && ~/.platformio/penv/bin/python -c "${monitorPy}"`;
   executeCommandInTerminal(cmd, `🔍 AI Auto-Detecting I2C Sensors (${envName} -> ${port})`);
+}
+
+
+// =============================================================================
+// 📡 Live UDP Syslog Server & Streamer Management
+// =============================================================================
+let activeSyslogEventSource = null;
+let isSyslogRunning = false;
+
+async function checkSyslogStatus() {
+  try {
+    const res = await fetch('/api/syslog/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    updateSyslogUIState(data);
+    if (data.running && !activeSyslogEventSource) {
+      connectSyslogStream();
+    }
+  } catch (e) {
+    // server might be offline or reloading
+  }
+}
+
+function updateSyslogUIState(data) {
+  isSyslogRunning = !!data.running;
+  const badge = document.getElementById('syslog-status-badge');
+  const badgeText = document.getElementById('syslog-status-text');
+  const btnStart = document.getElementById('btn-syslog-start');
+  const btnStop = document.getElementById('btn-syslog-stop');
+  const tab5Text = document.getElementById('tab5-syslog-text');
+  const tab5Btn = document.getElementById('btn-tab5-launch-syslog');
+  const statFile = document.getElementById('syslog-stat-file');
+  const statPackets = document.getElementById('syslog-stat-packets');
+  const statClient = document.getElementById('syslog-stat-client');
+  const portInput = document.getElementById('cfg-syslog-port');
+
+  if (portInput && data.port) {
+    portInput.value = data.port;
+  }
+
+  if (badge && badgeText) {
+    if (data.running) {
+      badge.className = 'syslog-status-badge running';
+      badgeText.textContent = `Syslog: UDP :${data.port}`;
+    } else {
+      badge.className = 'syslog-status-badge stopped';
+      badgeText.textContent = 'Syslog: Offline';
+    }
+  }
+
+  if (btnStart && btnStop) {
+    if (data.running) {
+      btnStart.style.display = 'none';
+      btnStop.style.display = 'inline-flex';
+    } else {
+      btnStart.style.display = 'inline-flex';
+      btnStop.style.display = 'none';
+    }
+  }
+
+  if (tab5Text) {
+    tab5Text.textContent = data.running ? `Syslog: :${data.port}` : 'Syslog Server';
+  }
+  if (tab5Btn) {
+    if (data.running) {
+      tab5Btn.classList.add('btn-accent');
+      tab5Btn.classList.remove('btn-ghost');
+    } else {
+      tab5Btn.classList.remove('btn-accent');
+      tab5Btn.classList.add('btn-ghost');
+    }
+  }
+
+  if (statFile && data.logfile) statFile.textContent = data.logfile;
+  if (statPackets && typeof data.packets === 'number') statPackets.textContent = data.packets;
+  if (statClient && data.last_sender) statClient.textContent = data.last_sender;
+}
+
+async function startSyslogServer(requestedPort) {
+  const portInput = document.getElementById('cfg-syslog-port');
+  const port = requestedPort || (portInput ? parseInt(portInput.value) || 514 : 514);
+  try {
+    const res = await fetch('/api/syslog/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port: port })
+    });
+    const data = await res.json();
+    if (data.status === 'running' || data.status === 'already_running') {
+      updateSyslogUIState(data);
+      connectSyslogStream();
+      const fallbackNote = data.fallback ? ` (fell back to :${data.port})` : '';
+      showToast(`🟢 Syslog Server listening on UDP port ${data.port}${fallbackNote}!`);
+      
+      // Append notification to terminal
+      const terminalScreen = document.getElementById('serial-terminal-screen');
+      if (terminalScreen) {
+        const lineEl = document.createElement('div');
+        lineEl.className = 'terminal-line terminal-in';
+        lineEl.textContent = `[SYSLOG SERVER] Listening on UDP 0.0.0.0:${data.port} | Saving to ${data.logfile}`;
+        terminalScreen.appendChild(lineEl);
+        terminalScreen.scrollTop = terminalScreen.scrollHeight;
+      }
+    } else {
+      showToast(`⚠️ Failed to start syslog: ${data.error || 'Unknown error'}`);
+    }
+  } catch (e) {
+    showToast(`⚠️ Syslog start error: ${e.message}`);
+  }
+}
+
+async function stopSyslogServer() {
+  try {
+    const res = await fetch('/api/syslog/stop', { method: 'POST' });
+    const data = await res.json();
+    updateSyslogUIState(data);
+    if (activeSyslogEventSource) {
+      activeSyslogEventSource.close();
+      activeSyslogEventSource = null;
+    }
+    showToast(`⏹️ Syslog Server stopped. Total packets: ${data.packets || 0}`);
+    const terminalScreen = document.getElementById('serial-terminal-screen');
+    if (terminalScreen) {
+      const lineEl = document.createElement('div');
+      lineEl.className = 'terminal-line terminal-dim';
+      lineEl.textContent = `[SYSLOG SERVER] Stopped (Captured ${data.packets || 0} packets).`;
+      terminalScreen.appendChild(lineEl);
+      terminalScreen.scrollTop = terminalScreen.scrollHeight;
+    }
+  } catch (e) {
+    showToast(`⚠️ Syslog stop error: ${e.message}`);
+  }
+}
+
+function connectSyslogStream() {
+  if (activeSyslogEventSource) {
+    activeSyslogEventSource.close();
+  }
+  activeSyslogEventSource = new EventSource('/api/syslog/stream');
+  
+  activeSyslogEventSource.addEventListener('status', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      updateSyslogUIState(data);
+    } catch (_) {}
+  });
+
+  activeSyslogEventSource.addEventListener('syslog', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const statPackets = document.getElementById('syslog-stat-packets');
+      const statClient = document.getElementById('syslog-stat-client');
+      if (statPackets) {
+        const cur = parseInt(statPackets.textContent) || 0;
+        statPackets.textContent = cur + 1;
+      }
+      if (statClient) statClient.textContent = data.sender;
+
+      const chkStream = document.getElementById('chk-stream-syslog-terminal');
+      if (!chkStream || chkStream.checked) {
+        const terminalScreen = document.getElementById('serial-terminal-screen');
+        if (terminalScreen) {
+          const lineEl = document.createElement('div');
+          lineEl.className = 'terminal-line terminal-syslog';
+          const timePart = data.time ? data.time.split(' ')[1] || data.time : '';
+          const escapedMsg = (data.message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          lineEl.innerHTML = `<span class="badge-syslog">SYSLOG</span> <span class="syslog-time">${timePart}</span> <span class="syslog-sender">[${data.sender}]</span> <span class="syslog-msg">${escapedMsg}</span>`;
+          terminalScreen.appendChild(lineEl);
+          
+          const chkAutoScroll = document.getElementById('chk-serial-autoscroll');
+          if (!chkAutoScroll || chkAutoScroll.checked) {
+            terminalScreen.scrollTop = terminalScreen.scrollHeight;
+          }
+        }
+      }
+    } catch (_) {}
+  });
+
+  activeSyslogEventSource.onerror = () => {
+    // will auto-reconnect
+  };
+}
+
+async function viewSyslogFiles() {
+  try {
+    const res = await fetch('/api/syslog/logs?tail=30');
+    if (!res.ok) return;
+    const data = await res.json();
+    const terminalScreen = document.getElementById('serial-terminal-screen');
+    if (terminalScreen) {
+      const lineEl = document.createElement('div');
+      lineEl.className = 'terminal-line terminal-in';
+      lineEl.textContent = `=== 📂 Syslog Files in logs/ (${data.files.length} files) ===`;
+      terminalScreen.appendChild(lineEl);
+      for (const f of data.files) {
+        const fEl = document.createElement('div');
+        fEl.className = 'terminal-line terminal-out';
+        fEl.textContent = `  - ${f.name} (${f.size} bytes)`;
+        terminalScreen.appendChild(fEl);
+      }
+      if (data.lines && data.lines.length > 0) {
+        const hEl = document.createElement('div');
+        hEl.className = 'terminal-line terminal-in';
+        hEl.textContent = `--- Tail of ${data.current_file} ---`;
+        terminalScreen.appendChild(hEl);
+        for (const l of data.lines) {
+          const lEl = document.createElement('div');
+          lEl.className = 'terminal-line terminal-syslog';
+          lEl.textContent = `  ${l}`;
+          terminalScreen.appendChild(lEl);
+        }
+      }
+      terminalScreen.scrollTop = terminalScreen.scrollHeight;
+    }
+    showToast(`📂 Found ${data.files.length} log files in logs/`);
+  } catch (e) {
+    showToast(`⚠️ Could not list logs: ${e.message}`);
+  }
+}
+
+function initSyslogControls() {
+  const btnStart = document.getElementById('btn-syslog-start');
+  if (btnStart) btnStart.addEventListener('click', () => startSyslogServer());
+
+  const btnStop = document.getElementById('btn-syslog-stop');
+  if (btnStop) btnStop.addEventListener('click', () => stopSyslogServer());
+
+  const btnTab5 = document.getElementById('btn-tab5-launch-syslog');
+  if (btnTab5) {
+    btnTab5.addEventListener('click', () => {
+      if (isSyslogRunning) stopSyslogServer();
+      else startSyslogServer();
+    });
+  }
+
+  const btnViewLogs = document.getElementById('btn-syslog-view-logs');
+  if (btnViewLogs) btnViewLogs.addEventListener('click', () => viewSyslogFiles());
+
+  checkSyslogStatus();
 }

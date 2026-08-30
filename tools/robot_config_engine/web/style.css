@@ -2123,3 +2123,169 @@ body {
   border-color: rgba(16, 185, 129, 0.4);
   color: #34d399;
 }
+/* ==========================================================================
+   📡 UDP Syslog Server, Streamer & Real-Time Logger Aesthetics
+   ========================================================================== */
+
+.syslog-card {
+  background: radial-gradient(circle at top right, rgba(56, 189, 248, 0.08), transparent 70%),
+              linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(8, 14, 26, 0.98));
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-md, 8px);
+  padding: 1.25rem;
+  margin-top: 1rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(56, 189, 248, 0.08);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.syslog-card:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.15);
+}
+
+.syslog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.syslog-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.syslog-icon {
+  font-size: 1.5rem;
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.5));
+}
+
+.syslog-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.syslog-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: rgba(100, 116, 139, 0.15);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  color: #94a3b8;
+  font-family: var(--font-mono, monospace);
+  transition: all 0.3s ease;
+}
+
+.syslog-status-badge.running {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+
+.syslog-status-badge.stopped {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.syslog-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+
+.syslog-stats-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.82rem;
+}
+
+.syslog-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #cbd5e1;
+}
+
+.syslog-stat-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.syslog-stat-val {
+  font-family: var(--font-mono, monospace);
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+/* Terminal Syslog Stream Lines */
+.terminal-syslog {
+  color: #e2e8f0;
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.15rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  animation: fadeInFast 0.2s ease-out;
+}
+
+.badge-syslog {
+  background: rgba(56, 189, 248, 0.2);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  padding: 0.08rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.syslog-time {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-family: var(--font-mono, monospace);
+  flex-shrink: 0;
+}
+
+.syslog-sender {
+  color: #a78bfa;
+  font-weight: 600;
+  font-size: 0.8rem;
+  font-family: var(--font-mono, monospace);
+  flex-shrink: 0;
+}
+
+.syslog-msg {
+  color: #f1f5f9;
+  word-break: break-all;
+  flex: 1;
+}
+
+@keyframes fadeInFast {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}

@@ -235,6 +235,56 @@
                   <input type="number" id="cfg-agent-port" class="form-input" value="8888">
                 </div>
               </div>
+              <!-- UDP Syslog Server & Streamer Card -->
+              <div class="syslog-card" id="syslog-config-card">
+                <div class="syslog-header">
+                  <div class="syslog-title-wrap">
+                    <span class="syslog-icon">📡</span>
+                    <div>
+                      <h4 class="syslog-title">UDP Syslog Server & Telemetry Logger</h4>
+                      <span class="input-hint" style="margin:0;">Receives real-time wireless debug telemetry from robot MCU and saves to <code>logs/</code></span>
+                    </div>
+                  </div>
+                  <div class="syslog-status-badge stopped" id="syslog-status-badge">
+                    <span class="pulse-dot" id="syslog-status-dot"></span>
+                    <span id="syslog-status-text">Syslog: Offline</span>
+                  </div>
+                </div>
+
+                <div class="syslog-controls-grid">
+                  <div class="form-group" style="margin-bottom:0;">
+                    <label for="cfg-syslog-port" class="form-label">Syslog UDP Port</label>
+                    <input type="number" id="cfg-syslog-port" class="form-input font-mono" value="514" placeholder="514 or 5140">
+                  </div>
+                  <div class="btn-group-row" style="margin-top:0;">
+                    <button type="button" id="btn-syslog-start" class="btn btn-sm btn-primary flex-1" title="Launch background UDP Syslog receiver">
+                      <span>▶️ Launch Syslog Server</span>
+                    </button>
+                    <button type="button" id="btn-syslog-stop" class="btn btn-sm btn-danger flex-1" style="display:none;" title="Stop UDP Syslog receiver">
+                      <span>⏹️ Stop Server</span>
+                    </button>
+                    <button type="button" id="btn-syslog-view-logs" class="btn btn-sm btn-ghost" title="Inspect recent syslog files in logs/">
+                      <span>📂 Logs</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="syslog-stats-bar" id="syslog-stats-bar">
+                  <div class="syslog-stat-item">
+                    <span class="syslog-stat-label">Active Log:</span>
+                    <span class="syslog-stat-val" id="syslog-stat-file">logs/syslog_YYYYMMDD.log</span>
+                  </div>
+                  <div class="syslog-stat-item">
+                    <span class="syslog-stat-label">Packets:</span>
+                    <span class="syslog-stat-val" id="syslog-stat-packets">0</span>
+                  </div>
+                  <div class="syslog-stat-item">
+                    <span class="syslog-stat-label">Last Client:</span>
+                    <span class="syslog-stat-val" id="syslog-stat-client">--</span>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
@@ -639,6 +689,9 @@
                 </button>
                 <button type="button" id="btn-download-deploy-script" class="btn btn-ghost" title="Download deploy_robot.sh script">
                   <span>📥 Script</span>
+                </button>
+                <button type="button" id="btn-tab5-launch-syslog" class="btn btn-ghost" title="Launch or stop UDP Syslog Telemetry Server">
+                  <span id="tab5-syslog-icon">📡</span> <span id="tab5-syslog-text">Syslog Server</span>
                 </button>
               </div>
               <div class="deploy-time-hint mt-2">
@@ -1238,6 +1291,10 @@ const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };</code></
                 </div>
                 <div class="console-controls-right">
                   <button type="button" id="btn-cancel-exec" class="btn btn-xs btn-danger" style="display: none;" title="Abort running process">⏹️ Stop Process</button>
+                  <label class="checkbox-label-sm" title="Stream wireless UDP syslog messages into terminal">
+                    <input type="checkbox" id="chk-stream-syslog-terminal" checked>
+                    <span>📡 Syslog</span>
+                  </label>
                   <label class="checkbox-label-sm">
                     <input type="checkbox" id="chk-serial-autoscroll" checked>
                     <span>Auto-scroll</span>
