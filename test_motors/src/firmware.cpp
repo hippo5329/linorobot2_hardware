@@ -52,16 +52,22 @@ geometry_msgs__msg__Twist twist_msg;
 sensor_msgs__msg__BatteryState battery_msg;
 sensor_msgs__msg__Range range_msg;
 
+#if (defined(LED_PIN) && LED_PIN >= 0)
+#define LED_ENABLED 1
+#else
+#define LED_ENABLED 0
+#endif
+
 void setLed(int value)
 {
-#ifdef LED_PIN
+#if LED_ENABLED
     digitalWrite(LED_PIN, value);
 #endif
 }
 
 int getLed(void)
 {
-#ifdef LED_PIN
+#if LED_ENABLED
     return digitalRead(LED_PIN);
 #else
     return 0;
@@ -70,7 +76,7 @@ int getLed(void)
 
 void initLed(void)
 {
-#ifdef LED_PIN
+#if LED_ENABLED
     pinMode(LED_PIN, OUTPUT);
 #endif
 }

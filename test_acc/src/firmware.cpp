@@ -85,7 +85,7 @@ unsigned total_motors = 4;
 void setup()
 {
     Serial.begin(BAUDRATE);
-#ifdef LED_PIN
+#if (defined(LED_PIN) && LED_PIN >= 0)
     pinMode(LED_PIN, OUTPUT);
 #endif
 #ifdef BOARD_INIT // board specific setup
@@ -211,7 +211,7 @@ void loop() {
         idx = 0;
         imu_max_acc_x = 0;
         imu_min_acc_x = 0;
-#ifdef LED_PIN
+#if (defined(LED_PIN) && LED_PIN >= 0)
         digitalWrite(LED_PIN, HIGH);
 #endif
         motor1_controller.spin((runs & 1) ? current_pwm_max : current_pwm_min);
@@ -220,7 +220,7 @@ void loop() {
         motor4_controller.spin(current_pwm_max);
         record(run_time / ticks);
 
-#ifdef LED_PIN
+#if (defined(LED_PIN) && LED_PIN >= 0)
         digitalWrite(LED_PIN, LOW);
 #endif
         motor1_controller.spin(0);
@@ -229,7 +229,7 @@ void loop() {
         motor4_controller.spin(0);
         record(run_time / ticks);
 
-#ifdef LED_PIN
+#if (defined(LED_PIN) && LED_PIN >= 0)
         digitalWrite(LED_PIN, HIGH);
 #endif
         motor1_controller.spin((runs & 1) ? current_pwm_min : current_pwm_max);
@@ -238,7 +238,7 @@ void loop() {
         motor4_controller.spin(current_pwm_min);
         record(run_time / ticks);
 
-#ifdef LED_PIN
+#if (defined(LED_PIN) && LED_PIN >= 0)
         digitalWrite(LED_PIN, LOW);
 #endif
         motor1_controller.spin(0);

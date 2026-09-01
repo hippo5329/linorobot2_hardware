@@ -158,9 +158,53 @@ MAG mag;
 #define BAUDRATE 921600
 #endif
 
+// ---------------------------------------------------------------------------
+// LED helpers.
+//
+// Boards without an addressable status LED (e.g. Waveshare GenDrv) set
+// #define LED_PIN -1 in their config header. On such boards the helpers
+// compile to no-ops so no spurious GPIO is touched and nothing is written.
+//
+// The guard is positive (enabled when defined && >= 0). The preprocessor
+// folds integer constants in #if expressions:
+//   - #define LED_PIN 25      -> 25 >= 0  true  -> LED enabled
+//   - #define LED_PIN -1      -> -1 >= 0  false -> LED disabled (no wiring)
+//   - #define LED_PIN LED_BUILTIN -> LED_BUILTIN is a non-macro identifier
+//     (a static const in the core pins_arduino.h), so the preprocessor treats
+//     it as 0 -> 0 >= 0 true  -> LED enabled, and digitalWrite(LED_BUILTIN,..)
+//     still resolves to the core pin at link time.
+//   - LED_PIN undefined       -> disabled (no reference, safe to compile)
+// ---------------------------------------------------------------------------
+#if (defined(LED_PIN) && LED_PIN >= 0)
+#define LED_ENABLED 1
+#else
+#define LED_ENABLED 0
+#endif
+
+static inline void ledInit() {
+#if LED_ENABLED
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
+#endif
+}
+
+static inline void ledWrite(bool level) {
+#if LED_ENABLED
+    digitalWrite(LED_PIN, level ? HIGH : LOW);
+#endif
+}
+
+static inline bool ledRead() {
+#if LED_ENABLED
+    return digitalRead(LED_PIN) == HIGH;
+#else
+    return false;
+#endif
+}
+
 void setup() 
 {
-    pinMode(LED_PIN, OUTPUT);
+    ledInit();
     Serial.begin(BAUDRATE);
 #ifdef ESP32
     Serial.setRxBufferSize(1024);
@@ -270,7 +314,7 @@ void controlCallback(rcl_timer_t * timer, int64_t last_call_time)
 
 void twistCallback(const void * msgin) 
 {
-    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+    ledWrite(!ledRead());
 
     prev_cmd_time = millis();
 }
@@ -357,7 +401,7 @@ bool createEntities()
 
     // synchronize time with the agent
     syncTime();
-    digitalWrite(LED_PIN, HIGH);
+    ledWrite(HIGH);
 
     return true;
 }
@@ -385,8 +429,8 @@ bool destroyEntities()
     RCSOFTCHECK(rcl_node_fini(&node))
     RCSOFTCHECK(rclc_support_fini(&support));
 
-    digitalWrite(LED_PIN, HIGH);
-    
+    ledWrite(HIGH);
+
     return true;
 }
 
@@ -411,7 +455,7 @@ void moveBase()
         twist_msg.linear.y = 0.0;
         twist_msg.angular.z = 0.0;
 
-        digitalWrite(LED_PIN, HIGH);
+        ledWrite(HIGH);
     }
     // get the required rpm for each motor based on required velocities, and base used
     Kinematics::rpm req_rpm = kinematics.getRPM(
@@ -563,9 +607,9 @@ void flashLED(int n_times)
 {
     for(int i=0; i<n_times; i++)
     {
-        digitalWrite(LED_PIN, HIGH);
+        ledWrite(HIGH);
         delay(150);
-        digitalWrite(LED_PIN, LOW);
+        ledWrite(LOW);
         delay(150);
     }
     delay(1000);
