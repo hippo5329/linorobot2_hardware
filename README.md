@@ -25,6 +25,44 @@ Supported targets:
 
 ---
 
+## Robot Configuration Engine & Web UI Studio
+
+`tools/robot_config_engine/` contains a browser-based configuration studio and a
+Python engine that generate a `linorobot2_hardware` setup from a guided form:
+hardware-rule validation, ADC divider / voltage safety checks, kinematics
+figures, and code generation for the C++ config header, the `[env:<robot>]`
+`platformio.ini` section, and the ROS 2 URDF xacro.
+
+### 3-step quick start
+
+1. **Start the server** (stdlib only, ~30-40 MB RAM):
+   ```bash
+   cd tools/robot_config_engine/web
+   python3 server.py 8000
+   ```
+2. **Open the studio** at `http://localhost:8000` (or `http://<robot-ip>:8000`
+   from another machine on the network).
+3. **Configure and deploy.** Pick a board or let it auto-detect from the USB
+   VID:PID, set wheel geometry, driver, sensors and pins with a live preview of
+   the generated code, then **Run Full Deploy** to merge the config, build the
+   firmware, flash the MCU and start `micro_ros_agent`.
+
+The generated `config/custom/<robot>_config.h` remains the single source of
+truth; WiFi credentials are written only to the git-ignored
+`config/custom/wifi_config.h`.
+
+There is also a CLI:
+
+```bash
+python3 tools/robot_config_engine/generate_config.py spec.json --out-dir ./out/
+python3 tools/robot_config_engine/generate_config.py spec.json --merge
+```
+
+See `tools/robot_config_engine/README.md` and `schema.json` for the spec format,
+and `examples/` for sample specs.
+
+---
+
 ## Overview
 
 The linorobot2_hardware repo uses platformio to build microcontroller firmware for mobile robots based on micro-ROS.
@@ -535,6 +573,34 @@ IMU ACC   2.38  -2.41 m/s2
 time to 0.9x max vel   0.24 sec
 distance to stop   0.04 m
 ```
+
+## I2C Sensor Scanner (`tools/i2c_detect`)
+
+`tools/i2c_detect/` is a small PlatformIO sketch that scans the I2C bus at
+400 kHz, probes `WHO_AM_I` / ID registers for the common robotics sensors, and
+prints the result (human-readable and as JSON) over serial. Use it to bring up a
+bare board before any sensor is configured.
+
+```bash
+cd tools/i2c_detect
+pio run -e <your_board> -t upload   # pico2 / pico / esp32 / esp32s3 / gendrv
+```
+
+Recognised signatures include: IMUs `QMI8658`, `MPU6050/9250/6500`,
+`BNO085/BNO080`, `BNO055`, `ADXL345`+`ITG3200` (GY-85); magnetometers `AK09918`,
+`AK8963/AK8975`, `QMC5883L`, `HMC5883L`; power monitors `INA219`/`INA226`
+(incl. the Waveshare GenDrv at `0x42`); barometers `BMP280`/`BME280`.
+
+In the Web UI studio, **Tab 3 → Auto-Detect Sensors** runs this probe and
+selects the matching drivers automatically.
+
+### UDP syslog viewer
+
+The studio server can also run a UDP syslog receiver for boards configured with
+wireless telemetry: `POST /api/syslog/start` (default port 514, falls back to
+5140 when unprivileged), `POST /api/syslog/stop`, `GET /api/syslog/status`,
+`GET /api/syslog/stream` (SSE), `GET /api/syslog/logs`. Received datagrams are
+streamed to the console and written to `logs/syslog_YYYYMMDD.log`.
 
 ## ESP32 ADC Calibration Utility (`adc_calibrate`)
 
