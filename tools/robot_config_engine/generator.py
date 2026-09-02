@@ -145,10 +145,11 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
     for i in range(1, 5):
         m = pins.get(f"motor{i}", {})
         if driver == "BTS7960":
-            # Real header format: MOTOR{i}_PWM = RPWM, IN_A = LPWM, IN_B = EN
-            lines.append(f"  #define MOTOR{i}_PWM {m.get('pwm_r', m.get('pwm', -1))} //DON'T TOUCH THIS! This is just a placeholder")
-            lines.append(f"  #define MOTOR{i}_IN_A {m.get('pwm_l', m.get('in_a', -1))}")
-            lines.append(f"  #define MOTOR{i}_IN_B {m.get('en', m.get('in_b', -1))}")
+            # BTS7960 uses two outputs only: IN_A = RPWM, IN_B = LPWM.
+            # MOTOR{i}_PWM is an unused arg in the driver class -> fixed placeholder.
+            lines.append(f"  #define MOTOR{i}_PWM -1 //DON'T TOUCH THIS! This is just a placeholder")
+            lines.append(f"  #define MOTOR{i}_IN_A {m.get('in_a', m.get('pwm_l', -1))}")
+            lines.append(f"  #define MOTOR{i}_IN_B {m.get('in_b', m.get('en', -1))}")
         elif driver == "GENERIC_2_IN":
             lines.append(f"  #define MOTOR{i}_PWM {m.get('pwm', -1)}")
             lines.append(f"  #define MOTOR{i}_IN_A {m.get('in_a', -1)}")
@@ -221,14 +222,6 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
         if not have_imported_board_init:
             is_rp2 = "PICO" in mcu_name or "RP2" in mcu_name
             bi = ["#define BOARD_INIT { \\"]
-            if driver == "BTS7960":
-                n_active = 4 if kine != "DIFFERENTIAL_DRIVE" else 2
-                for i in range(1, n_active + 1):
-                    m = pins.get(f"motor{i}", {})
-                    pwm = m.get("pwm_r", m.get("pwm", -1))
-                    if pwm is not None and pwm >= 0:
-                        bi.append(f"    pinMode(MOTOR{i}_PWM, OUTPUT); \\")
-                        bi.append(f"    digitalWrite(MOTOR{i}_PWM, HIGH); \\")
             if is_rp2:
                 bi.append("    Wire.setSDA(SDA_PIN); \\")
                 bi.append("    Wire.setSCL(SCL_PIN); \\")

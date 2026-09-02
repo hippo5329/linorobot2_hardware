@@ -124,9 +124,11 @@ def validate_robot_spec(spec: Dict[str, Any]) -> Tuple[bool, List[ValidationErro
     for i in range(1, num_motors + 1):
         m_pins = pins.get(f"motor{i}", {})
         if driver_type == "BTS7960":
-            register_pin(m_pins.get("pwm_r"), f"motor{i}.pwm_r", is_output=True)
-            register_pin(m_pins.get("pwm_l"), f"motor{i}.pwm_l", is_output=True)
-            register_pin(m_pins.get("en"), f"motor{i}.en", is_output=True)
+            # Two outputs only: RPWM -> IN_A, LPWM -> IN_B (accept legacy pwm_l/en).
+            in_a = m_pins["in_a"] if "in_a" in m_pins else m_pins.get("pwm_l")
+            in_b = m_pins["in_b"] if "in_b" in m_pins else m_pins.get("en")
+            register_pin(in_a, f"motor{i}.in_a", is_output=True)
+            register_pin(in_b, f"motor{i}.in_b", is_output=True)
         elif driver_type == "GENERIC_2_IN":
             register_pin(m_pins.get("pwm"), f"motor{i}.pwm", is_output=True)
             register_pin(m_pins.get("in_a"), f"motor{i}.in_a", is_output=True)

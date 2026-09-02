@@ -417,17 +417,17 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
         mk   = f"motor{i}"
 
         if driver == "BTS7960":
-            # Waveshare GenDrv convention: PWM = pwm_r (RPWM),
-            # IN_A = pwm_l (LPWM), IN_B = en (enable/bridge)
+            # BTS7960 uses two outputs only: MOTORx_IN_A = RPWM, MOTORx_IN_B = LPWM.
+            # MOTORx_PWM is an unused placeholder in the header / driver class.
             spec["pins"][mk] = {
-                "pwm_r": pwm,
-                "pwm_l": in_a,
-                "en":    in_b,
-                # keep generic keys for compatibility
-                "pwm":  pwm,
                 "in_a": in_a,
                 "in_b": in_b,
-                "dir":  -1,
+                "pwm":  pwm,
+                # legacy keys kept for older importers
+                "pwm_l": in_a,
+                "en":    in_b,
+                "pwm_r": -1,
+                "dir":   -1,
             }
         elif driver == "GENERIC_1_IN":
             spec["pins"][mk] = {

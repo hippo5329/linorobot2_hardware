@@ -65,6 +65,50 @@ def _wifi_config_content():
     except OSError:
         return ""
 
+
+def _git(*args, cwd=REPO_ROOT):
+    """Run `git <args>` in the repo; return stripped stdout, or '' on any failure."""
+    try:
+        out = subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=5.0
+        )
+        if out.returncode == 0:
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def collect_git_info():
+    """Snapshot of the checked-out repo: 8-char commit, branch, remotes, last 10 commits."""
+    remotes = []
+    for line in _git("remote", "-v").splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[2] == "(fetch)":
+            remotes.append({"name": parts[0], "url": parts[1]})
+    commits = []
+    log = _git("log", "-10", "--pretty=format:%h\x1f%s\x1f%an\x1f%ad\x1f%ar", "--date=short")
+    for line in log.splitlines():
+        f = line.split("\x1f")
+        if len(f) == 5:
+            commits.append({
+                "hash": f[0], "subject": f[1], "author": f[2],
+                "date": f[3], "reldate": f[4],
+            })
+    return {
+        "version": (_git("rev-parse", "--short=8", "HEAD") or "unknown")[:8],
+        "full": _git("rev-parse", "HEAD"),
+        "branch": _git("rev-parse", "--abbrev-ref", "HEAD") or "(detached)",
+        "dirty": bool(_git("status", "--porcelain")),
+        "remotes": remotes,
+        "commits": commits,
+    }
+
+
+# The commit the web server was started on ("the version we start the web").
+GIT_VERSION_AT_START = (_git("rev-parse", "--short=8", "HEAD") or "unknown")[:8]
+
+
 class SyslogManager:
     """
     Lightweight, multi-threaded UDP Syslog server & real-time telemetry broadcaster.
@@ -890,6 +934,26 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
                         proc.kill()
                     except Exception:
                         pass
+            return
+
+        if parsed.path == "/api/gitinfo":
+            # Git provenance for the header version badge: the 8-char commit the
+            # server booted on, plus the live branch / remotes / last 10 commits
+            # shown when the badge is clicked.
+            info = collect_git_info()
+            info["version_at_start"] = GIT_VERSION_AT_START
+            info["moved_since_start"] = (
+                info.get("version") != GIT_VERSION_AT_START
+                and GIT_VERSION_AT_START != "unknown"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            try:
+                self.wfile.write(json.dumps(info).encode("utf-8"))
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
 
         if parsed.path == "/api/boards":

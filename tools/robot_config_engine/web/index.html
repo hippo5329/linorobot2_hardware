@@ -37,20 +37,41 @@
     </div>
 
     <div class="header-actions">
-      <!-- Preset Quick Loader -->
-      <div class="preset-selector-group">
-        <label for="preset-select" class="preset-label">⚡ Reference Build:</label>
-        <select id="preset-select" class="preset-select">
-          <option value="bare" selected>🧩 Bare Module — all pins N/C (safe default)</option>
-          <option value="pico2_diff">⚡ Pico 2 · 2WD Differential · BTS7960 (Fake IMU)</option>
-          <option value="pico2_mecanum">⚡ Pico 2 · 4WD Mecanum · BTS7960 (Fake IMU)</option>
-          <option value="pico2_skid">⚡ Pico 2 · 4WD Skid Steer · BTS7960 (Fake IMU)</option>
-          <option value="scout_pico2">Raspberry Pi Pico 2 (2WD Diff + TB6612 / L298N)</option>
-          <option value="mech_pico2">Raspberry Pi Pico 2 (4WD Mecanum + TB6612)</option>
-          <option value="mech_esp32">ESP32 (4WD Mecanum + WiFi UDP + BNO085)</option>
-          <option value="crawler_esp32s3">ESP32-S3 (4WD Skid + Sonar + ADC)</option>
-          <option value="waveshare_gendrv">Waveshare General Driver (ESP32 + BTS7960)</option>
-        </select>
+      <!-- Robot name, branch, git version & reference build -->
+      <div class="reference-build-stack">
+        <div class="hdr-field">
+          <label for="cfg-robot-name">🤖 Robot Name:</label>
+          <input type="text" id="cfg-robot-name" class="form-input hdr-input" value="scout_pico2" placeholder="e.g. scout_pico2" pattern="^[a-z0-9_]+$" title="Lowercase alphanumeric &amp; underscores only">
+        </div>
+        <div class="hdr-field">
+          <label for="auto-git-branch">⎇ Branch:</label>
+          <input type="text" id="auto-git-branch" class="form-input hdr-input" data-auto-managed="true" value="scout_pico2" placeholder="current branch" title="Robot SBC git branch. Run Merge &amp; Commit checks it out (creating it if new).">
+          <button type="button" id="btn-branch-to-name" class="hdr-btn" title="Set the branch to the robot name and switch to it">= name</button>
+        </div>
+        <div class="git-version-row">
+          <button id="git-version-badge" class="git-version-badge" type="button" aria-expanded="false"
+                  title="Repo version the web server started on — click for branch, remotes &amp; recent commits">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>
+            </svg>
+            <span id="git-version-text">········</span>
+          </button>
+          <div id="git-version-popover" class="git-version-popover" hidden></div>
+        </div>
+        <div class="preset-selector-group">
+          <label for="preset-select" class="preset-label">⚡ Reference Build:</label>
+          <select id="preset-select" class="preset-select">
+            <option value="bare" selected>🧩 Bare Module — all pins N/C (safe default)</option>
+            <option value="pico2_diff">⚡ Pico 2 · 2WD Differential · BTS7960 (Fake IMU)</option>
+            <option value="pico2_mecanum">⚡ Pico 2 · 4WD Mecanum · BTS7960 (Fake IMU)</option>
+            <option value="pico2_skid">⚡ Pico 2 · 4WD Skid Steer · BTS7960 (Fake IMU)</option>
+            <option value="scout_pico2">Raspberry Pi Pico 2 (2WD Diff + TB6612 / L298N)</option>
+            <option value="mech_pico2">Raspberry Pi Pico 2 (4WD Mecanum + TB6612)</option>
+            <option value="mech_esp32">ESP32 (4WD Mecanum + WiFi UDP + BNO085)</option>
+            <option value="crawler_esp32s3">ESP32-S3 (4WD Skid + Sonar + ADC)</option>
+            <option value="waveshare_gendrv">Waveshare General Driver (ESP32 + BTS7960)</option>
+          </select>
+        </div>
       </div>
 
       <!-- OS Quick Indicator -->
@@ -133,24 +154,9 @@
 
             <div class="form-grid">
               <div class="form-group">
-                <label for="cfg-robot-name" class="form-label">Robot Name (Identifier)</label>
-                <input type="text" id="cfg-robot-name" class="form-input" value="scout_pico2" placeholder="e.g. scout_pico2" pattern="^[a-z0-9_]+$">
-                <span class="input-hint">Lowercase alphanumeric & underscores only</span>
-              </div>
-
-              <div class="form-group">
                 <label for="cfg-topic-prefix" class="form-label">ROS 2 Topic Prefix <span class="badge-optional">Optional</span></label>
                 <input type="text" id="cfg-topic-prefix" class="form-input font-mono" value="" placeholder="e.g. robot1  ->  /robot1/odom/unfiltered">
                 <span class="input-hint">Prepended to every published/subscribed topic (<code>#define TOPIC_PREFIX</code>). Leave blank for bare <code>/cmd_vel</code>, <code>/odom/unfiltered</code>, …</span>
-              </div>
-
-              <div class="form-group">
-                <label for="cfg-kinematics" class="form-label">Kinematics Base Type</label>
-                <select id="cfg-kinematics" class="form-select">
-                  <option value="DIFFERENTIAL_DRIVE" selected>2WD Differential Drive (2 Motors)</option>
-                  <option value="SKID_STEER">4WD Skid Steer (4 Motors)</option>
-                  <option value="MECANUM">4WD Mecanum Drive (4 Motors)</option>
-                </select>
               </div>
 
               <div class="form-group">
@@ -362,27 +368,15 @@
         <!-- Tab 2: Drive & Motors -->
         <div class="tab-pane" id="tab-drive">
           <div class="form-section">
-            <h2 class="section-title">Chassis Geometry & Physics</h2>
+            <h2 class="section-title">Kinematics Base</h2>
             <div class="form-grid">
               <div class="form-group">
-                <label for="cfg-wheel-dia" class="form-label">Wheel Diameter (m)</label>
-                <input type="number" id="cfg-wheel-dia" class="form-input" value="0.08" step="0.005" min="0.01" max="1.0">
-                <span class="input-hint">e.g. 0.08m = 80mm</span>
-              </div>
-              <div class="form-group">
-                <label for="cfg-track-width" class="form-label">Track Width (LR Wheels Distance) (m)</label>
-                <input type="number" id="cfg-track-width" class="form-input" value="0.22" step="0.005" min="0.05" max="2.0">
-                <span class="input-hint">Center-to-center distance between Left and Right wheels</span>
-              </div>
-              <div class="form-group" id="group-wheelbase" style="display: none;">
-                <label for="cfg-wheelbase" class="form-label">Wheelbase (FR Wheels Distance) (m)</label>
-                <input type="number" id="cfg-wheelbase" class="form-input" value="0.20" step="0.005" min="0.05" max="2.0">
-                <span class="input-hint">Front-to-rear axle distance (for 4WD/Mecanum)</span>
-              </div>
-              <div class="form-group">
-                <label for="cfg-weight" class="form-label">Robot Total Weight (kg) <span class="badge-optional">Optional</span></label>
-                <input type="number" id="cfg-weight" class="form-input" value="3.5" step="0.1" min="0.1" max="200.0">
-                <span class="input-hint">Used to calculate max linear acceleration & inertia</span>
+                <label for="cfg-kinematics" class="form-label">Kinematics Base Type</label>
+                <select id="cfg-kinematics" class="form-select">
+                  <option value="DIFFERENTIAL_DRIVE" selected>2WD Differential Drive (2 Motors)</option>
+                  <option value="SKID_STEER">4WD Skid Steer (4 Motors)</option>
+                  <option value="MECANUM">4WD Mecanum Drive (4 Motors)</option>
+                </select>
               </div>
             </div>
           </div>
@@ -439,6 +433,32 @@
               </div>
             </div>
 
+          </div>
+
+          <div class="form-section">
+            <h2 class="section-title">Chassis Geometry &amp; Physics</h2>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="cfg-wheel-dia" class="form-label">Wheel Diameter (m)</label>
+                <input type="number" id="cfg-wheel-dia" class="form-input" value="0.08" step="0.005" min="0.01" max="1.0">
+                <span class="input-hint">e.g. 0.08m = 80mm</span>
+              </div>
+              <div class="form-group">
+                <label for="cfg-track-width" class="form-label">Track Width (LR Wheels Distance) (m)</label>
+                <input type="number" id="cfg-track-width" class="form-input" value="0.22" step="0.005" min="0.05" max="2.0">
+                <span class="input-hint">Center-to-center distance between Left and Right wheels</span>
+              </div>
+              <div class="form-group" id="group-wheelbase" style="display: none;">
+                <label for="cfg-wheelbase" class="form-label">Wheelbase (FR Wheels Distance) (m)</label>
+                <input type="number" id="cfg-wheelbase" class="form-input" value="0.20" step="0.005" min="0.05" max="2.0">
+                <span class="input-hint">Front-to-rear axle distance (for 4WD/Mecanum)</span>
+              </div>
+              <div class="form-group">
+                <label for="cfg-weight" class="form-label">Robot Total Weight (kg) <span class="badge-optional">Optional</span></label>
+                <input type="number" id="cfg-weight" class="form-input" value="3.5" step="0.1" min="0.1" max="200.0">
+                <span class="input-hint">Used to calculate max linear acceleration &amp; inertia</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -936,13 +956,8 @@
 
             <!-- 4. Merge Generated Headers & Git Commit -->
             <h3 class="sub-title mt-4">🔀 4. Merge Generated Headers & Git Commit Automation</h3>
+            <p class="input-hint" style="margin-bottom:0.5rem;">Runs on the <strong>Branch</strong> set in the header (top-right) — <strong>Run Merge &amp; Commit</strong> checks that branch out first, creating it if it doesn't exist.</p>
             <div class="form-grid">
-              <div class="form-group">
-                <label for="auto-git-branch" class="form-label">Git Branch Name</label>
-                <input type="text" id="auto-git-branch" class="form-input" data-auto-managed="true" value="config/scout_pico2" placeholder="e.g. config/scout_pico2">
-                <span class="input-hint">Auto-created branch for isolated testing</span>
-              </div>
-
               <div class="form-group">
                 <label for="auto-git-commit-msg" class="form-label">Git Commit Message</label>
                 <input type="text" id="auto-git-commit-msg" class="form-input" data-auto-managed="true" value="feat(config): add configuration for scout_pico2" placeholder="Commit message">

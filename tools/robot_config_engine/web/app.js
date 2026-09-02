@@ -358,8 +358,8 @@ const PRESETS = {
     },
     pins: {
       led: -1,
-      motor1: { pwm_r: 25, pwm_l: 17, en: 21 },
-      motor2: { pwm_r: 26, pwm_l: 23, en: 22 },
+      motor1: { in_a: 17, in_b: 21 },
+      motor2: { in_a: 23, in_b: 22 },
       encoders: { m1_a: 34, m1_b: 35, m2_a: 16, m2_b: 27 },
       i2c: { sda: 32, scl: 33 },
       battery_pin: -1,
@@ -396,8 +396,116 @@ document.addEventListener("DOMContentLoaded", () => {
   loadPreset("bare");
   detectClientOS();
   checkServerRunnerStatus();
+  initGitVersionBadge();
   handleUrlParams();
 });
+
+// Mirror the Robot SBC's current git branch into the Tab 5 merge/commit
+// branch field until the user edits it. "Run Merge & Commit" then checks that
+// branch out (creating it if new).
+function applyCurrentBranch(branch) {
+  const el = document.getElementById("auto-git-branch");
+  if (!el || !branch || branch === "(detached)") return;
+  if (el.dataset.autoManaged === "false") return;
+  el.value = branch;
+  el.dataset.autoManaged = "true";
+}
+
+// =============================================================================
+// Header Git Version Badge — shows the 8-char commit the web server booted on;
+// click to reveal the branch, remotes and last 10 commits (GET /api/gitinfo).
+// =============================================================================
+function initGitVersionBadge() {
+  const badge = document.getElementById("git-version-badge");
+  const text = document.getElementById("git-version-text");
+  const popover = document.getElementById("git-version-popover");
+  if (!badge || !text || !popover) return;
+
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+
+  let loaded = null;
+
+  const render = (info) => {
+    const remotes = (info.remotes || []).map((r) => `
+      <div class="gv-line">
+        <span class="gv-remote-name">${esc(r.name)}</span>
+        <span class="gv-val">${esc(r.url)}</span>
+      </div>`).join("") || `<div class="gv-line"><span class="gv-val">(no remotes)</span></div>`;
+
+    const commits = (info.commits || []).map((c) => `
+      <li>
+        <div><span class="gv-hash">${esc(c.hash)}</span> <span class="gv-subject">${esc(c.subject)}</span></div>
+        <div class="gv-meta">${esc(c.author)} · ${esc(c.date)} (${esc(c.reldate)})</div>
+      </li>`).join("") || `<li><span class="gv-meta">(no commit history)</span></li>`;
+
+    const movedNote = info.moved_since_start
+      ? `<div class="gv-note">⚠ HEAD is now at <code>${esc(info.version)}</code> — the server is still running the <code>${esc(info.version_at_start)}</code> build. Restart server.py to pick up the new code.</div>`
+      : "";
+    const dirtyNote = info.dirty
+      ? `<div class="gv-note">Working tree has uncommitted changes.</div>`
+      : "";
+
+    popover.innerHTML = `
+      <h4>Version</h4>
+      <div class="gv-line"><span class="gv-key">server @</span><span class="gv-val">${esc(info.version_at_start)}</span></div>
+      <div class="gv-line"><span class="gv-key">branch</span><span class="gv-val">${esc(info.branch)}</span></div>
+      <h4>Remotes</h4>
+      ${remotes}
+      <h4>Last 10 commits</h4>
+      <ol class="gv-commits">${commits}</ol>
+      ${movedNote}
+      ${dirtyNote}`;
+  };
+
+  const load = async () => {
+    try {
+      const res = await fetch("/api/gitinfo", { cache: "no-cache" });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const closePopover = () => {
+    popover.hidden = true;
+    badge.setAttribute("aria-expanded", "false");
+  };
+
+  const openPopover = async () => {
+    // Always re-fetch: the branch and recent commits change during a session
+    // whenever a robot-config Full Deploy writes a config commit / branch.
+    const fresh = await load();
+    if (fresh) { loaded = fresh; render(loaded); applyCurrentBranch(fresh.branch); }
+    if (!loaded) return;
+    popover.hidden = false;
+    badge.setAttribute("aria-expanded", "true");
+  };
+
+  badge.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (popover.hidden) openPopover();
+    else closePopover();
+  });
+  document.addEventListener("click", (e) => {
+    if (!popover.hidden && !popover.contains(e.target) && e.target !== badge) closePopover();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !popover.hidden) closePopover();
+  });
+
+  // Prime the badge label at startup.
+  load().then((info) => {
+    if (!info) { text.textContent = "no-git"; return; }
+    loaded = info;
+    render(info);
+    text.textContent = info.version_at_start || "unknown";
+    if (info.dirty || info.moved_since_start) badge.classList.add("is-dirty");
+    applyCurrentBranch(info.branch);
+  });
+}
 
 // URL Query Parameter Handling (e.g. ?preset=mech_esp32&tab=tab-drive&artifact=tab-code-pio)
 function handleUrlParams() {
@@ -455,6 +563,25 @@ function initEventListeners() {
   document.getElementById("preset-select").addEventListener("change", (e) => {
     loadPreset(e.target.value);
   });
+
+  // Header "= name" button: point the branch field at the robot name and
+  // switch the Robot SBC to that branch (creating it if new).
+  const btnBranchToName = document.getElementById("btn-branch-to-name");
+  if (btnBranchToName) {
+    btnBranchToName.addEventListener("click", () => {
+      const name = (currentSpec.robot_name
+        || document.getElementById("cfg-robot-name")?.value || "robot").trim();
+      const el = document.getElementById("auto-git-branch");
+      if (el) { el.value = name; el.dataset.autoManaged = "false"; updateAutomationPreviews(); }
+      const cmd = [
+        `set -e`,
+        `if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then echo "Not a git repository."; exit 1; fi`,
+        `git checkout -b "${name}" 2>/dev/null || git checkout "${name}"`,
+        `echo "Now on branch: $(git rev-parse --abbrev-ref HEAD)"`,
+      ].join("\n");
+      executeCommandInTerminal(cmd, `Switching to Git branch '${name}'`);
+    });
+  }
 
   // Dynamic Input Form Listeners
   const allInputs = document.querySelectorAll(".form-input, .form-select, input[type='checkbox']");
@@ -662,21 +789,24 @@ function populateFormFromSpec(spec) {
   document.getElementById("pin-led").value = p.led !== undefined ? p.led : 25;
 
   const dt = spec.motors?.driver_type || "GENERIC_2_IN";
-  setPinVal("pin-m1-p1", dt === "BTS7960" ? p.motor1?.pwm_r : p.motor1?.pwm);
-  setPinVal("pin-m1-p2", dt === "BTS7960" ? p.motor1?.pwm_l : (dt === "GENERIC_1_IN" ? p.motor1?.dir : p.motor1?.in_a));
-  setPinVal("pin-m1-p3", dt === "BTS7960" ? p.motor1?.en : p.motor1?.in_b);
-
-  setPinVal("pin-m2-p1", dt === "BTS7960" ? p.motor2?.pwm_r : p.motor2?.pwm);
-  setPinVal("pin-m2-p2", dt === "BTS7960" ? p.motor2?.pwm_l : (dt === "GENERIC_1_IN" ? p.motor2?.dir : p.motor2?.in_a));
-  setPinVal("pin-m2-p3", dt === "BTS7960" ? p.motor2?.en : p.motor2?.in_b);
-
-  setPinVal("pin-m3-p1", dt === "BTS7960" ? p.motor3?.pwm_r : p.motor3?.pwm);
-  setPinVal("pin-m3-p2", dt === "BTS7960" ? p.motor3?.pwm_l : (dt === "GENERIC_1_IN" ? p.motor3?.dir : p.motor3?.in_a));
-  setPinVal("pin-m3-p3", dt === "BTS7960" ? p.motor3?.en : p.motor3?.in_b);
-
-  setPinVal("pin-m4-p1", dt === "BTS7960" ? p.motor4?.pwm_r : p.motor4?.pwm);
-  setPinVal("pin-m4-p2", dt === "BTS7960" ? p.motor4?.pwm_l : (dt === "GENERIC_1_IN" ? p.motor4?.dir : p.motor4?.in_a));
-  setPinVal("pin-m4-p3", dt === "BTS7960" ? p.motor4?.en : p.motor4?.in_b);
+  const _pick = (...v) => v.find((x) => x !== undefined && x !== null);
+  for (let i = 1; i <= 4; i++) {
+    const m = p[`motor${i}`] || {};
+    let p1, p2, p3;
+    if (dt === "BTS7960") {
+      // Two outputs: RPWM (IN_A) and LPWM (IN_B). Accept legacy pwm_r/pwm_l/en.
+      p1 = _pick(m.in_a, m.pwm_l, m.pwm_r, m.pwm);
+      p2 = _pick(m.in_b, m.en);
+      p3 = undefined;
+    } else if (dt === "GENERIC_1_IN") {
+      p1 = m.pwm; p2 = _pick(m.dir, m.in_a); p3 = m.in_b;
+    } else {
+      p1 = m.pwm; p2 = m.in_a; p3 = m.in_b;
+    }
+    setPinVal(`pin-m${i}-p1`, p1);
+    setPinVal(`pin-m${i}-p2`, p2);
+    setPinVal(`pin-m${i}-p3`, p3);
+  }
 
   const enc = p.encoders || {};
   setPinVal("pin-enc-1a", enc.m1_a);
@@ -737,10 +867,8 @@ function populateFormFromSpec(spec) {
   setPinVal("pin-sonar-echo", p.sonar?.echo);
 
   const robotName = spec.robot_name || "my_robot";
-  const gitBranchInput = document.getElementById("auto-git-branch");
-  if (gitBranchInput && gitBranchInput.dataset.autoManaged !== "false") {
-    gitBranchInput.value = `config/${robotName}`;
-  }
+  // The git branch field mirrors the Robot SBC's current branch (populated
+  // from /api/gitinfo), not the robot name — leave it to applyCurrentBranch().
   const gitCommitInput = document.getElementById("auto-git-commit-msg");
   if (gitCommitInput && gitCommitInput.dataset.autoManaged !== "false") {
     gitCommitInput.value = `feat(config): add configuration for ${robotName}`;
@@ -902,7 +1030,8 @@ function readSpecFromForm() {
     const p3 = getInt(`${prefix}-p3`);
 
     if (driverType === "BTS7960") {
-      return { pwm_r: p1, pwm_l: p2, en: p3 };
+      // Two outputs only: p1 = RPWM (MOTORx_IN_A), p2 = LPWM (MOTORx_IN_B).
+      return { in_a: p1, in_b: p2 };
     } else if (driverType === "GENERIC_2_IN") {
       return { pwm: p1, in_a: p2, in_b: p3 };
     } else if (driverType === "GENERIC_1_IN") {
@@ -1002,17 +1131,36 @@ function updateDynamicUIState() {
   document.getElementById("box-sonar-trig").style.display = sonarActive ? "flex" : "none";
   document.getElementById("box-sonar-echo").style.display = sonarActive ? "flex" : "none";
 
-  // Motor Headers based on Driver Type
+  // Motor pin matrix: header + how many of the 3 pin columns the driver
+  // actually uses. Columns beyond that are hidden, and any blank value in
+  // them is parked at -1 ("no connection") so it never reads as GPIO 0.
+  // A value the user has typed into a hidden column is left untouched.
   const headerEl = document.getElementById("motor-pin-headers");
   const invTh = `<th title="Invert this motor's spin direction">Invert</th>`;
+  let pinTh, activePins;
   if (driverType === "BTS7960") {
-    headerEl.innerHTML = `<th>Motor</th><th>PWM (n/c)</th><th>IN_A / PWM 1</th><th>IN_B / PWM 2</th>` + invTh;
+    pinTh = `<th>RPWM &rarr; IN_A</th><th>LPWM &rarr; IN_B</th>`;
+    activePins = 2;
   } else if (driverType === "GENERIC_2_IN") {
-    headerEl.innerHTML = `<th>Motor</th><th>PWM (Speed)</th><th>IN_A (Dir 1)</th><th>IN_B (Dir 2)</th>` + invTh;
+    pinTh = `<th>PWM (Speed)</th><th>IN_A (Dir 1)</th><th>IN_B (Dir 2)</th>`;
+    activePins = 3;
   } else if (driverType === "GENERIC_1_IN") {
-    headerEl.innerHTML = `<th>Motor</th><th>PWM (Speed)</th><th>DIR (Direction)</th><th>--</th>` + invTh;
-  } else {
-    headerEl.innerHTML = `<th>Motor</th><th>PWM Signal</th><th>--</th><th>--</th>` + invTh;
+    pinTh = `<th>PWM (Speed)</th><th>DIR (Direction)</th>`;
+    activePins = 2;
+  } else { // ESC
+    pinTh = `<th>PWM Signal</th>`;
+    activePins = 1;
+  }
+  headerEl.innerHTML = `<th>Motor</th>` + pinTh + invTh;
+  for (let i = 1; i <= 4; i++) {
+    for (let c = 1; c <= 3; c++) {
+      const el = document.getElementById(`pin-m${i}-p${c}`);
+      if (!el) continue;
+      const used = c <= activePins;
+      const cell = el.closest("td");
+      if (cell) cell.style.display = used ? "" : "none";
+      if (!used && el.value.trim() === "") el.value = "-1";
+    }
   }
 
   // HUD Tag
@@ -1120,9 +1268,8 @@ function validateRobotSpec(spec) {
   for (let i = 1; i <= numMotors; i++) {
     const m = pins[`motor${i}`] || {};
     if (driverType === "BTS7960") {
-      registerPin(m.pwm_r, `Motor ${i} PWM_R`, true);
-      registerPin(m.pwm_l, `Motor ${i} PWM_L`, true);
-      registerPin(m.en, `Motor ${i} Enable`, true);
+      registerPin(m.in_a !== undefined ? m.in_a : m.pwm_l, `Motor ${i} RPWM (IN_A)`, true);
+      registerPin(m.in_b !== undefined ? m.in_b : m.en, `Motor ${i} LPWM (IN_B)`, true);
     } else if (driverType === "GENERIC_2_IN") {
       registerPin(m.pwm, `Motor ${i} PWM`, true);
       registerPin(m.in_a, `Motor ${i} IN_A`, true);
@@ -1425,10 +1572,11 @@ function generateCppHeader(spec) {
   for (let i = 1; i <= 4; i++) {
     const m = pins[`motor${i}`] || {};
     if (driver === "BTS7960") {
-      // MOTORx_PWM = RPWM (unused placeholder), IN_A = LPWM, IN_B = EN
-      lines.push(`  #define MOTOR${i}_PWM ${pinVal(m.pwm_r !== undefined ? m.pwm_r : m.pwm)} //DON'T TOUCH THIS! This is just a placeholder`);
-      lines.push(`  #define MOTOR${i}_IN_A ${pinVal(m.pwm_l !== undefined ? m.pwm_l : m.in_a)}`);
-      lines.push(`  #define MOTOR${i}_IN_B ${pinVal(m.en !== undefined ? m.en : m.in_b)}`);
+      // BTS7960 uses two outputs only: IN_A = RPWM, IN_B = LPWM.
+      // MOTORx_PWM is an unused arg in the driver class -> fixed placeholder.
+      lines.push(`  #define MOTOR${i}_PWM -1 //DON'T TOUCH THIS! This is just a placeholder`);
+      lines.push(`  #define MOTOR${i}_IN_A ${pinVal(m.in_a !== undefined ? m.in_a : m.pwm_l)}`);
+      lines.push(`  #define MOTOR${i}_IN_B ${pinVal(m.in_b !== undefined ? m.in_b : m.en)}`);
     } else if (driver === "GENERIC_1_IN") {
       lines.push(`  #define MOTOR${i}_PWM ${pinVal(m.pwm)}`);
       lines.push(`  #define MOTOR${i}_IN_A ${pinVal(m.dir !== undefined ? m.dir : m.in_a)}`);
@@ -1524,16 +1672,6 @@ function generateCppHeader(spec) {
   if (i2cUsed && sda !== undefined && scl !== undefined && sda >= 0 && scl >= 0) {
     lines.push(``, `// I2C Bus`, `#define SDA_PIN ${sda}`, `#define SCL_PIN ${scl}`);
     const bi = [`#define BOARD_INIT { \\`];
-    if (driver === "BTS7960") {
-      for (let i = 1; i <= (is4WD ? 4 : 2); i++) {
-        const mm = pins[`motor${i}`] || {};
-        const pwm = mm.pwm_r !== undefined ? mm.pwm_r : mm.pwm;
-        if (pwm !== undefined && pwm >= 0) {
-          bi.push(`    pinMode(MOTOR${i}_PWM, OUTPUT); \\`);
-          bi.push(`    digitalWrite(MOTOR${i}_PWM, HIGH); \\`);
-        }
-      }
-    }
     bi.push(`    Wire.begin(SDA_PIN, SCL_PIN); \\`);
     bi.push(`    Wire.setClock(400000); \\`);
     bi.push(`}`);
@@ -1812,9 +1950,10 @@ function generateWiringTable(spec) {
   for (let i = 1; i <= numMotors; i++) {
     const m = pins[`motor${i}`] || {};
     if (driver === "BTS7960") {
-      rows.push(`| **Motor ${i} PWM_R** | \`GPIO ${m.pwm_r}\` | BTS7960 R_PWM | Forward PWM |`);
-      rows.push(`| **Motor ${i} PWM_L** | \`GPIO ${m.pwm_l}\` | BTS7960 L_PWM | Reverse PWM |`);
-      if (m.en !== undefined) rows.push(`| **Motor ${i} Enable** | \`GPIO ${m.en}\` | BTS7960 R_EN / L_EN | Enable Pin |`);
+      const inA = m.in_a !== undefined ? m.in_a : m.pwm_l;
+      const inB = m.in_b !== undefined ? m.in_b : m.en;
+      rows.push(`| **Motor ${i} RPWM** | \`GPIO ${inA}\` | BTS7960 RPWM -> MOTOR${i}_IN_A | Forward PWM |`);
+      rows.push(`| **Motor ${i} LPWM** | \`GPIO ${inB}\` | BTS7960 LPWM -> MOTOR${i}_IN_B | Reverse PWM |`);
     } else {
       rows.push(`| **Motor ${i} PWM** | \`GPIO ${m.pwm}\` | Driver PWM / ENA | Speed Control |`);
       rows.push(`| **Motor ${i} IN_A** | \`GPIO ${m.in_a}\` | Driver IN1 / DIR | Direction Line A |`);
@@ -2333,7 +2472,7 @@ function readAutomationOptions() {
     rosDistro: document.getElementById("auto-ros-distro")?.value || "jazzy",
     rosType: document.getElementById("auto-ros-type")?.value || "desktop",
     buildMicrorosAgent: document.getElementById("chk-build-microros-agent")?.checked ?? true,
-    gitBranch: document.getElementById("auto-git-branch")?.value.trim() || `config/${currentSpec.robot_name || "robot"}`,
+    gitBranch: document.getElementById("auto-git-branch")?.value.trim() || "",
     gitCommitMsg: document.getElementById("auto-git-commit-msg")?.value.trim() || `feat(config): add configuration for ${currentSpec.robot_name || "robot"}`,
     mergeHeader: document.getElementById("chk-merge-header")?.checked ?? true,
     mergePioFirmware: document.getElementById("chk-merge-pio-firmware")?.checked ?? true,
@@ -2358,13 +2497,8 @@ function updateAutomationPreviews() {
   const spec = currentSpec;
   const robotName = spec.robot_name || "scout_pico2";
 
-  // Dynamic Git Branch & Commit message if unset or auto-managed
-  const gitBranchInput = document.getElementById("auto-git-branch");
-  if (gitBranchInput && (!gitBranchInput.value || gitBranchInput.dataset.autoManaged === "true")) {
-    gitBranchInput.value = `config/${robotName}`;
-    gitBranchInput.dataset.autoManaged = "true";
-  }
-
+  // The git branch field tracks the Robot SBC's current branch (see
+  // applyCurrentBranch), not the robot name — do not overwrite it here.
   const gitCommitInput = document.getElementById("auto-git-commit-msg");
   if (gitCommitInput && (!gitCommitInput.value || gitCommitInput.dataset.autoManaged === "true")) {
     gitCommitInput.value = `feat(config): add configuration for ${robotName}`;
@@ -2532,7 +2666,7 @@ function getRos2InstallCmd(opts) {
 function getMergeAndCommitCmd(spec, opts) {
   const name = spec.robot_name || "my_robot";
   const nameUpper = name.toUpperCase();
-  const branch = opts.gitBranch || `config/${name}`;
+  const branch = (opts.gitBranch || "").trim();
   const commitMsg = opts.gitCommitMsg || `feat(config): add configuration for ${name}`;
   const headerContent = generateCppHeader(spec);
   const pioSection = generatePlatformioEnv(spec);
@@ -2540,9 +2674,13 @@ function getMergeAndCommitCmd(spec, opts) {
 
   const lines = [
     `set -e`,
-    `# 1. Create Isolated Git Branch`,
-    `git checkout -b "${branch}" 2>/dev/null || git checkout "${branch}"`,
-    ``,
+    ...(branch ? [
+      `# 1. Switch to (or create) the target branch`,
+      `if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then`,
+      `    git checkout -b "${branch}" 2>/dev/null || git checkout "${branch}"`,
+      `fi`,
+      ``,
+    ] : []),
     `# 2. Ingest Custom Header`,
     `mkdir -p config/custom urdf`,
     `cat << 'EOF_HEADER' > "config/custom/${name}_config.h"`,
@@ -2576,7 +2714,7 @@ function getMergeAndCommitCmd(spec, opts) {
     `if ! git diff --cached --quiet; then`,
     `    git commit -m "${commitMsg}"`,
     `else`,
-    `    echo "Configuration files already up to date on branch ${branch}."`,
+    `    echo "Configuration files already up to date on branch $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')."`,
     `fi`
   ];
 
@@ -2588,7 +2726,6 @@ function generateDeployScript(spec, opts) {
   const name = spec.robot_name || "my_robot";
   const nameUpper = name.toUpperCase();
   const mcu = (spec.mcu || "PICO2").toUpperCase();
-  const branch = opts.gitBranch || `config/${name}`;
   const commitMsg = opts.gitCommitMsg || `feat(config): add configuration for ${name}`;
   const target = opts.flashTarget || "firmware";
   const port = opts.flashPort || "/dev/ttyACM0";
@@ -2807,12 +2944,12 @@ fi` : ""}
 ` : `# ROS 2 Host setup skipped (Standalone Firmware mode)`}
 
 # -----------------------------------------------------------------------------
-# Phase 3: Git Branch Preparation
+# Phase 3: Git Branch
 # -----------------------------------------------------------------------------
-${opts.autoCommit ? `info "Step 3: Preparing Git branch '${branch}'..."
-if git rev-parse --is-inside-work-tree &>/dev/null; then
-    git checkout -b "${branch}" 2>/dev/null || git checkout "${branch}" || warn "Could not switch to branch '${branch}'; staying on the current branch."
-fi` : "# Git branch switch skipped (git automation disabled)"}
+# Full Deploy runs on whatever branch is checked out. To land the config on a
+# different branch, set it in the studio's "Git Branch Name" field and use
+# "Run Merge & Commit" (which checks that branch out first).
+${`if git rev-parse --is-inside-work-tree &>/dev/null; then info "Working on Git branch '$(git rev-parse --abbrev-ref HEAD)'."; fi`}
 
 # -----------------------------------------------------------------------------
 # Phase 4: Ingest Custom C++ Header
@@ -2890,7 +3027,7 @@ ${opts.autoCommit ? `if git rev-parse --is-inside-work-tree &>/dev/null; then
             git config user.name "Linorobot2 Deploy Engine" || true
         fi
         if git commit -m "${commitMsgEsc}"; then
-            success "Git commit created on branch '${branch}'"
+            success "Git commit created on branch '$(git rev-parse --abbrev-ref HEAD)'"
         else
             warn "git commit failed; the generated configuration remains staged."
         fi

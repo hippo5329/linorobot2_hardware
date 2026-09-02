@@ -116,6 +116,33 @@ class TestRobotConfigEngine(unittest.TestCase):
         header = generate_config_header(parsed)
         self.assertIn("#define LED_PIN -1", header)
 
+    def test_bts7960_two_output_roundtrip(self):
+        # BTS7960 drives exactly two pins: MOTORx_IN_A (RPWM) and MOTORx_IN_B
+        # (LPWM). MOTORx_PWM is an unused placeholder and must be emitted as -1
+        # with no BOARD_INIT enable-drive lines.
+        spec = json.loads(json.dumps(self.valid_pico_spec))
+        spec["motors"]["driver_type"] = "BTS7960"
+        spec["pins"]["motor1"] = {"in_a": 12, "in_b": 13}
+        spec["pins"]["motor2"] = {"in_a": 10, "in_b": 11}
+        header = generate_config_header(spec)
+        self.assertIn("#define MOTOR1_PWM -1", header)
+        self.assertIn("#define MOTOR1_IN_A 12", header)
+        self.assertIn("#define MOTOR1_IN_B 13", header)
+        self.assertNotIn("pinMode(MOTOR1_PWM", header)
+
+        parsed = parse_header_to_spec(header)
+        self.assertEqual(parsed["motors"]["driver_type"], "BTS7960")
+        self.assertEqual(parsed["pins"]["motor1"]["in_a"], 12)
+        self.assertEqual(parsed["pins"]["motor1"]["in_b"], 13)
+
+        ok, errors, _ = validate_robot_spec(spec)
+        self.assertTrue(ok, errors)
+
+        # A duplicate across the two real outputs is still a conflict.
+        spec["pins"]["motor2"]["in_a"] = 12
+        ok, errors, _ = validate_robot_spec(spec)
+        self.assertFalse(ok)
+
     def test_negative_encoder_pins_valid(self):
         # Negative values stand for "no connection" and must not trigger
         # pin-conflict or out-of-range errors, even when repeated.
