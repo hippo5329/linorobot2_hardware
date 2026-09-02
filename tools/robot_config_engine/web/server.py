@@ -80,7 +80,7 @@ def _git(*args, cwd=REPO_ROOT):
 
 
 def collect_git_info():
-    """Snapshot of the checked-out repo: 8-char commit, branch, remotes, last 10 commits."""
+    """Snapshot of the checked-out repo: 7-char commit, branch, remotes, last 10 commits."""
     remotes = []
     for line in _git("remote", "-v").splitlines():
         parts = line.split()
@@ -96,7 +96,7 @@ def collect_git_info():
                 "date": f[3], "reldate": f[4],
             })
     return {
-        "version": (_git("rev-parse", "--short=8", "HEAD") or "unknown")[:8],
+        "version": (_git("rev-parse", "--short=7", "HEAD") or "unknown")[:7],
         "full": _git("rev-parse", "HEAD"),
         "branch": _git("rev-parse", "--abbrev-ref", "HEAD") or "(detached)",
         "dirty": bool(_git("status", "--porcelain")),
@@ -106,7 +106,7 @@ def collect_git_info():
 
 
 # The commit the web server was started on ("the version we start the web").
-GIT_VERSION_AT_START = (_git("rev-parse", "--short=8", "HEAD") or "unknown")[:8]
+GIT_VERSION_AT_START = (_git("rev-parse", "--short=7", "HEAD") or "unknown")[:7]
 
 
 class SyslogManager:
@@ -937,7 +937,7 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/gitinfo":
-            # Git provenance for the header version badge: the 8-char commit the
+            # Git provenance for the header version badge: the 7-char commit the
             # server booted on, plus the live branch / remotes / last 10 commits
             # shown when the badge is clicked.
             info = collect_git_info()

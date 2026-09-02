@@ -412,7 +412,7 @@ function applyCurrentBranch(branch) {
 }
 
 // =============================================================================
-// Header Git Version Badge — shows the 8-char commit the web server booted on;
+// Header Git Version Badge — shows the 7-char commit the web server booted on;
 // click to reveal the branch, remotes and last 10 commits (GET /api/gitinfo).
 // =============================================================================
 function initGitVersionBadge() {
@@ -2825,7 +2825,15 @@ else
 fi` : "# Build tools check skipped"}
 
 ${opts.installPio ? `export PATH="$HOME/.platformio/penv/bin:$HOME/.local/bin:$PATH"
-if ! command -v pio &>/dev/null; then
+# "pio on PATH" is not enough — a stale/half-installed penv leaves a \`pio\`
+# entry-point that can no longer import platformio. Test that it actually runs.
+pio_ok() { command -v pio >/dev/null 2>&1 && pio --version >/dev/null 2>&1; }
+if ! pio_ok; then
+    if command -v pio >/dev/null 2>&1; then
+        warn "PlatformIO on PATH is broken (cannot import 'platformio') — rebuilding a clean venv..."
+        rm -rf "$HOME/.platformio/penv"
+        hash -r
+    fi
     info "Installing PlatformIO Core..."
     if ! curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py; then
         err "Could not download the PlatformIO installer (raw.githubusercontent.com unreachable)."
@@ -2836,11 +2844,22 @@ if ! command -v pio &>/dev/null; then
         exit 1
     fi
     export PATH="$HOME/.platformio/penv/bin:$HOME/.local/bin:$PATH"
+    hash -r
 fi
-if ! command -v pio &>/dev/null; then
-    err "PlatformIO Core is still not on PATH after installation."
+if ! pio_ok; then
+    err "PlatformIO Core is not working after installation ('pio --version' fails)."
     exit 1
 fi
+# The penv sometimes ships pip \`cmake\` / \`colcon\` shims that shadow the
+# working system tool but can't import their own modules — drop the dead ones.
+for _t in cmake colcon; do
+    _p="$HOME/.platformio/penv/bin/$_t"
+    if [ -e "$_p" ] && ! "$_p" --version >/dev/null 2>&1; then
+        warn "Removing broken PlatformIO penv shim: $_p"
+        rm -f "$_p"
+    fi
+done
+hash -r
 success "PlatformIO Core active: $(pio --version 2>/dev/null || echo 'Installed')"
 ` : "# PlatformIO install skipped"}
 
@@ -2886,7 +2905,11 @@ if [ ! -f "/opt/ros/${opts.rosDistro}/setup.bash" ]; then
 fi
 success "ROS 2 ${opts.rosDistro} available at /opt/ros/${opts.rosDistro}"
 
-${opts.buildMicrorosAgent ? `UROS_AGENT_BIN="$HOME/uros_ws/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
+${opts.buildMicrorosAgent ? `# A failing agent-workspace build is NON-FATAL: the config merge/commit and the
+# firmware build + flash below do not need it. Only Phase 9 (agent handshake +
+# topic discovery) is skipped. AGENT_WS_OK tracks whether the agent is usable.
+AGENT_WS_OK=1
+UROS_AGENT_BIN="$HOME/uros_ws/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
 # Rebuild if the agent binary is absent — colcon writes install/setup.bash even
 # when a package fails to compile, so that file alone is not proof of a build.
 if [ -d "/opt/ros/${opts.rosDistro}" ] && [ ! -x "$UROS_AGENT_BIN" ]; then
@@ -2898,49 +2921,45 @@ if [ -d "/opt/ros/${opts.rosDistro}" ] && [ ! -x "$UROS_AGENT_BIN" ]; then
         fi
     fi
     if ! command -v colcon >/dev/null 2>&1; then
-        err "colcon is required to build the micro-ROS agent but is not available."
-        err "Install 'python3-colcon-common-extensions', or set ROS Distro to 'none' to skip the agent build."
-        exit 1
-    fi
-    mkdir -p "$HOME/uros_ws/src"
-    pushd "$HOME/uros_ws" >/dev/null
-    # micro-ROS cuts a branch per ROS distro, but newer distros (e.g. lyrical)
-    # land in ROS before micro-ROS tags them — fall back to 'rolling', which
-    # builds fine against the current ROS headers.
-    uros_clone() {
-        local repo="\$1" dest="\$2"
-        git clone -b "${opts.rosDistro}" "\$repo" "\$dest" 2>/dev/null && return 0
-        warn "No '${opts.rosDistro}' branch for \$(basename \$repo .git); trying 'rolling'..."
-        git clone -b rolling "\$repo" "\$dest" 2>/dev/null && return 0
-        git clone "\$repo" "\$dest" 2>/dev/null && return 0
-        warn "Could not clone \$repo"
-        return 1
-    }
-    if [ ! -d "src/micro_ros_agent" ]; then
-        uros_clone https://github.com/micro-ROS/micro-ROS-Agent.git src/micro_ros_agent
-    fi
-    if [ ! -d "src/micro_ros_msgs" ]; then
-        uros_clone https://github.com/micro-ROS/micro_ros_msgs.git src/micro_ros_msgs
-    fi
-    if [ ! -d "src/micro_ros_agent" ] || [ ! -d "src/micro_ros_msgs" ]; then
+        warn "colcon is not available — skipping the micro-ROS agent build (firmware still builds & flashes)."
+        AGENT_WS_OK=0
+    else
+        mkdir -p "$HOME/uros_ws/src"
+        pushd "$HOME/uros_ws" >/dev/null
+        # micro-ROS cuts a branch per ROS distro, but newer distros (e.g. lyrical)
+        # land in ROS before micro-ROS tags them — fall back to 'rolling', which
+        # builds fine against the current ROS headers.
+        uros_clone() {
+            local repo="\$1" dest="\$2"
+            git clone -b "${opts.rosDistro}" "\$repo" "\$dest" 2>/dev/null && return 0
+            warn "No '${opts.rosDistro}' branch for \$(basename \$repo .git); trying 'rolling'..."
+            git clone -b rolling "\$repo" "\$dest" 2>/dev/null && return 0
+            git clone "\$repo" "\$dest" 2>/dev/null && return 0
+            warn "Could not clone \$repo"
+            return 1
+        }
+        [ -d "src/micro_ros_agent" ] || uros_clone https://github.com/micro-ROS/micro-ROS-Agent.git src/micro_ros_agent
+        [ -d "src/micro_ros_msgs" ]  || uros_clone https://github.com/micro-ROS/micro_ros_msgs.git src/micro_ros_msgs
+        if [ ! -d "src/micro_ros_agent" ] || [ ! -d "src/micro_ros_msgs" ]; then
+            warn "micro-ROS agent sources are missing — skipping the agent build."
+            AGENT_WS_OK=0
+        else
+            set +e
+            source "/opt/ros/${opts.rosDistro}/setup.bash"
+            colcon build --symlink-install \${COLCON_JOBS} --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+            COLCON_RC=\$?
+            set -e
+        fi
         popd >/dev/null
-        err "micro-ROS agent sources are missing; cannot build the agent workspace."
-        exit 1
+        if [ "\$AGENT_WS_OK" = "1" ] && { [ "\${COLCON_RC:-1}" -ne 0 ] || [ ! -x "$UROS_AGENT_BIN" ]; }; then
+            warn "micro-ROS agent workspace build FAILED at $HOME/uros_ws — micro-ROS-Agent may not support ROS 2 ${opts.rosDistro} yet (vendored spdlog vs system libfmt / GCC on newer distros)."
+            warn "Continuing anyway: config merge, git commit, firmware build and flash below are unaffected."
+            warn "To bridge the board afterwards, run an agent from a container, e.g.:  docker run --rm --net=host --privileged -v /dev:/dev microros/micro-ros-agent:${opts.rosDistro} serial --dev ${port} -b ${spec.baudrate || 921600}"
+            AGENT_WS_OK=0
+        fi
+        [ "\$AGENT_WS_OK" = "1" ] && success "micro-ROS agent workspace ready at $HOME/uros_ws"
     fi
-    set +e
-    source "/opt/ros/${opts.rosDistro}/setup.bash"
-    colcon build --symlink-install \${COLCON_JOBS} --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
-    COLCON_RC=$?
-    set -e
-    popd >/dev/null
-    if [ "\${COLCON_RC}" -ne 0 ] || [ ! -x "$UROS_AGENT_BIN" ]; then
-        err "Failed to build the micro-ROS agent workspace at $HOME/uros_ws."
-        err "micro-ROS-Agent may not yet support ROS 2 ${opts.rosDistro} (e.g. vendored spdlog vs the system libfmt on newer distros)."
-        err "The firmware build below is unaffected; run the agent from a supported distro or container."
-        exit 1
-    fi
-    success "micro-ROS agent workspace ready at $HOME/uros_ws"
-fi` : ""}
+fi` : "AGENT_WS_OK=0  # agent build not requested"}
 ` : `# ROS 2 Host setup skipped (Standalone Firmware mode)`}
 
 # -----------------------------------------------------------------------------
@@ -3093,10 +3112,10 @@ if [ "${target}" = "firmware" ] && [ "${opts.rosDistro}" != "none" ]; then
     ensure_serial_rw "${port}"
 
     if ! ros2 pkg prefix micro_ros_agent >/dev/null 2>&1; then
-        err "micro_ros_agent is not on the ROS 2 graph — the agent workspace did not build for '${opts.rosDistro}'."
-        err "Firmware was compiled and flashed successfully; bridge it with an agent from a supported distro/container."
-        exit 1
-    fi
+        warn "micro_ros_agent is not on the ROS 2 graph — the agent workspace did not build for '${opts.rosDistro}'."
+        warn "Firmware was built and flashed. Bridge the board with an agent from a supported distro/container, e.g.:"
+        warn "  docker run --rm --net=host --privileged -v /dev:/dev microros/micro-ros-agent:${opts.rosDistro} serial --dev ${port} -b ${spec.baudrate || 921600}"
+    else
 
     AGENT_LOG="/tmp/micro_ros_agent_${name}.log"
     info "Starting micro-ROS agent in background (logging to \${AGENT_LOG})..."
@@ -3152,6 +3171,7 @@ if [ "${target}" = "firmware" ] && [ "${opts.rosDistro}" != "none" ]; then
     info "========================================================="
     ros2 topic list -t 2>/dev/null || echo "  (no topics discovered yet)"
     info "========================================================="
+    fi
 fi
 
 info "========================================================="
@@ -3160,6 +3180,18 @@ info "========================================================="
 `;
 
   return script;
+}
+
+// Stage the generated deploy script on the Robot SBC and run it. Shared by the
+// header "Run Full Deploy" button and the Automation-tab hero card.
+function runFullDeploy() {
+  const spec = currentSpec;
+  const opts = readAutomationOptions();
+  const name = spec.robot_name || "scout_pico2";
+  const script = generateDeployScript(spec, opts);
+  const safeName = String(name).replace(/[^A-Za-z0-9._-]/g, "_");
+  const cmd = `cat << 'EOF_DEPLOY_SCRIPT_WRAPPER' > "deploy_${safeName}.sh"\n${script}\nEOF_DEPLOY_SCRIPT_WRAPPER\nchmod +x "deploy_${safeName}.sh" && bash "./deploy_${safeName}.sh"`;
+  executeCommandInTerminal(cmd, `Executing Full Deploy Lifecycle for '${name}'`);
 }
 
 // -----------------------------------------------------------------------------
@@ -3432,14 +3464,6 @@ function getDirectUploadOrBuildCmd(target, isUpload = true) {
 
 // Initialize Automation Event Listeners
 function initAutomationEventListeners() {
-  // Top Quick Deploy Button
-  const btnQuickDeploy = document.getElementById("btn-quick-deploy");
-  if (btnQuickDeploy) {
-    btnQuickDeploy.addEventListener("click", () => {
-      const tabBtn = document.querySelector('[data-tab="tab-automation"]');
-      if (tabBtn) tabBtn.click();
-    });
-  }
 
   // Re-detect OS Button
   const btnRedetect = document.getElementById("btn-redetect-os");
@@ -3661,14 +3685,18 @@ function initAutomationEventListeners() {
 
   const btnExecDeploy = document.getElementById("btn-exec-deploy-script");
   if (btnExecDeploy) {
-    btnExecDeploy.addEventListener("click", () => {
-      const spec = currentSpec;
-      const opts = readAutomationOptions();
-      const name = spec.robot_name || "scout_pico2";
-      const script = generateDeployScript(spec, opts);
-      const safeName = String(name).replace(/[^A-Za-z0-9._-]/g, "_");
-      const cmd = `cat << 'EOF_DEPLOY_SCRIPT_WRAPPER' > "deploy_${safeName}.sh"\n${script}\nEOF_DEPLOY_SCRIPT_WRAPPER\nchmod +x "deploy_${safeName}.sh" && bash "./deploy_${safeName}.sh"`;
-      executeCommandInTerminal(cmd, `Executing Full Deploy Lifecycle for '${name}'`);
+    btnExecDeploy.addEventListener("click", runFullDeploy);
+  }
+
+  // Header "Run Full Deploy" — jump to the Automation tab (so its terminal is
+  // visible) and kick off the same deploy. Keeps the first-run path short:
+  // set Robot Name -> "= name" -> Run Full Deploy.
+  const btnHeaderDeploy = document.getElementById("btn-header-deploy");
+  if (btnHeaderDeploy) {
+    btnHeaderDeploy.addEventListener("click", () => {
+      const tab = document.querySelector('[data-tab="tab-automation"]');
+      if (tab) tab.click();
+      runFullDeploy();
     });
   }
 
@@ -3687,13 +3715,20 @@ function initAutomationEventListeners() {
     });
   }
 
-  // Stream SBC Serial Monitor
+  // Stream SBC Serial Monitor — raw-read the MCU's serial port on the Robot SBC
+  // and pipe its output into the console. Pure coreutils (stty + cat), no
+  // pyserial dependency; press ⏹️ Stop Process to disconnect.
   const btnSbcMonitor = document.getElementById("btn-sbc-monitor");
   if (btnSbcMonitor) {
     btnSbcMonitor.addEventListener("click", () => {
       const port = document.getElementById("auto-flash-port")?.value.trim() || (isESP32(currentSpec.mcu) ? "/dev/ttyUSB0" : "/dev/ttyACM0");
       const baud = document.getElementById("serial-baud-select")?.value || "921600";
-      const cmd = `python3 -u -c "import serial, sys, time; ser = serial.Serial('${port}', ${baud}, timeout=0.2); print('📡 Connected to ${port} @ ${baud} baud. Streaming live microcontroller output (test_sensors / telemetry)... Click ⏹️ Stop Process to disconnect.\\n', flush=True); [sys.stdout.write(l.decode('utf-8', errors='replace')) or sys.stdout.flush() for l in iter(ser.readline, b'')] || true"`;
+      const cmd = [
+        `if [ ! -e "${port}" ]; then echo "❌ ${port} not present — plug in / flash the board first."; exit 1; fi`,
+        `stty -F "${port}" ${baud} raw -echo 2>/dev/null || true`,
+        `echo "📡 Connected to ${port} @ ${baud} baud. Streaming live microcontroller output (test_sensors / telemetry). Press ⏹️ Stop Process to disconnect."`,
+        `exec cat "${port}"`,
+      ].join("\n");
       executeCommandInTerminal(cmd, `📡 Streaming Serial Telemetry (${port} @ ${baud} baud)`);
     });
   }
@@ -4499,7 +4534,7 @@ async function loadExistingConfig(filename) {
 
 // Merge modified UI form settings into base configuration
 async function mergeCurrentConfig() {
-  readFormIntoSpec();
+  currentSpec = readSpecFromForm();
   try {
     const res = await fetch('/api/merge', {
       method: 'POST',
@@ -4524,10 +4559,10 @@ async function mergeCurrentConfig() {
 
 // Save merged configuration directly to config/custom/
 async function saveConfigToFirmware() {
-  readFormIntoSpec();
+  currentSpec = readSpecFromForm();
   const name = currentSpec.robot_name || 'robot';
   const filename = `${name}_config.h`;
-  const headerCode = generateCppConfigHeader(currentSpec);
+  const headerCode = generateCppHeader(currentSpec);
   try {
     const res = await fetch('/api/save', {
       method: 'POST',

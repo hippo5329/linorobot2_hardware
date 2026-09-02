@@ -54,7 +54,7 @@
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/>
             </svg>
-            <span id="git-version-text">········</span>
+            <span id="git-version-text">·······</span>
           </button>
           <div id="git-version-popover" class="git-version-popover" hidden></div>
         </div>
@@ -72,6 +72,11 @@
             <option value="waveshare_gendrv">Waveshare General Driver (ESP32 + BTS7960)</option>
           </select>
         </div>
+        <button type="button" id="btn-header-deploy" class="btn btn-accent hdr-deploy-btn"
+                title="Set Robot Name, press = name, then Run Full Deploy — build, flash & bring up live ROS 2 topics">
+          <span class="btn-icon">🚀</span>
+          <span><strong>Run Full Deploy</strong></span>
+        </button>
       </div>
 
       <!-- OS Quick Indicator -->
@@ -79,11 +84,6 @@
         <span class="os-badge-icon" id="header-os-icon">🐧</span>
         <span class="os-badge-text" id="header-os-text">Detecting OS...</span>
       </div>
-
-      <button id="btn-quick-deploy" class="btn btn-accent" title="Jump to Automation Hub">
-        <span class="tab-icon">🚀</span>
-        <span>Deploy & Flash</span>
-      </button>
 
       <!-- Action Buttons -->
       <button id="btn-load-board" class="btn btn-secondary" title="Load board configuration from firmware/platformio.ini">
