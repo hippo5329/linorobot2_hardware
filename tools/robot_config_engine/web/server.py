@@ -109,12 +109,19 @@ def collect_git_info():
 GIT_VERSION_AT_START = (_git("rev-parse", "--short=7", "HEAD") or "unknown")[:7]
 
 
+# Rolling cap for the on-disk syslog capture: a chatty robot streaming for days
+# would otherwise fill the disk. At the limit the file is rotated to a single
+# .1 backup (so at most ~2x this per day).
+SYSLOG_MAX_BYTES = 10 * 1024 * 1024
+
+
 class SyslogManager:
     """
     Lightweight, multi-threaded UDP Syslog server & real-time telemetry broadcaster.
     Listens on UDP (default port 514 with auto-fallback to 5140 for non-root),
-    appends timestamped telemetry logs to repo logs/syslog_YYYYMMDD.log,
-    and broadcasts events in real-time to Web UI SSE subscribers.
+    appends timestamped telemetry logs to repo logs/syslog_YYYYMMDD.log (rotated
+    at SYSLOG_MAX_BYTES with one .1 backup), and broadcasts events in real-time
+    to Web UI SSE subscribers.
     """
     def __init__(self, repo_root):
         self.repo_root = repo_root
@@ -133,16 +140,63 @@ class SyslogManager:
         self.subscribers = set()
         self.subscribers_lock = threading.Lock()
         self.lock = threading.Lock()
+        # Persistent append handle for the current log file (avoids an open()
+        # per packet and lets us track size for rotation).
+        self._log_fh = None
+        self._log_path = None
+        self._log_bytes = 0
 
     def get_current_log_filepath(self):
         date_str = datetime.datetime.now().strftime("%Y%m%d")
         return os.path.join(self.logs_dir, f"syslog_{date_str}.log")
+
+    def _close_log(self):
+        if self._log_fh:
+            try:
+                self._log_fh.close()
+            except Exception:
+                pass
+        self._log_fh = None
+        self._log_path = None
+        self._log_bytes = 0
+
+    def _write_log_line(self, line):
+        """Append one line, opening/rotating the day's log file as needed."""
+        path = self.get_current_log_filepath()
+        try:
+            if self._log_fh is None or self._log_path != path:
+                # First write, or the date rolled over past midnight.
+                self._close_log()
+                self._log_path = path
+                self._log_fh = open(path, "a", encoding="utf-8")
+                try:
+                    self._log_bytes = os.path.getsize(path)
+                except OSError:
+                    self._log_bytes = 0
+
+            encoded_len = len(line.encode("utf-8"))
+            if self._log_bytes + encoded_len > SYSLOG_MAX_BYTES:
+                # Rotate: current -> <name>.1 (replacing any previous backup).
+                self._log_fh.close()
+                try:
+                    os.replace(path, path + ".1")
+                except OSError:
+                    pass
+                self._log_fh = open(path, "a", encoding="utf-8")
+                self._log_bytes = 0
+
+            self._log_fh.write(line)
+            self._log_fh.flush()
+            self._log_bytes += encoded_len
+        except Exception:
+            self._close_log()
 
     def start(self, requested_port=514):
         with self.lock:
             if self.is_running:
                 return {
                     "status": "already_running",
+                    "running": True,
                     "host_ip": self._host_ip(),
                     "port": self.bound_port,
                     "logfile": os.path.relpath(self.get_current_log_filepath(), self.repo_root),
@@ -184,6 +238,7 @@ class SyslogManager:
 
             return {
                 "status": "running",
+                "running": True,
                 "host_ip": self._host_ip(),
                 "port": self.bound_port,
                 "requested_port": self.port,
@@ -195,7 +250,7 @@ class SyslogManager:
     def stop(self):
         with self.lock:
             if not self.is_running:
-                return {"status": "stopped", "port": self.bound_port, "packets": self.packets_received}
+                return {"status": "stopped", "running": False, "port": self.bound_port, "packets": self.packets_received}
             self.is_running = False
             if self.sock:
                 try:
@@ -206,8 +261,9 @@ class SyslogManager:
                 except Exception:
                     pass
                 self.sock = None
+            self._close_log()
 
-            return {"status": "stopped", "port": self.bound_port, "packets": self.packets_received}
+            return {"status": "stopped", "running": False, "port": self.bound_port, "packets": self.packets_received}
 
     def _listen_loop(self):
         while self.is_running:
@@ -247,13 +303,8 @@ class SyslogManager:
 
                 formatted_line = f"[{time_str}] [{client_str}] {clean_text}\n"
 
-                # Append to log file
-                log_file = self.get_current_log_filepath()
-                try:
-                    with open(log_file, "a", encoding="utf-8") as f:
-                        f.write(formatted_line)
-                except Exception:
-                    pass
+                # Append to log file (rotates at SYSLOG_MAX_BYTES)
+                self._write_log_line(formatted_line)
 
                 self.packets_received += 1
                 self.last_sender = client_str
@@ -1310,6 +1361,21 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "Empty command"}).encode("utf-8"))
                 return
 
+            # Single-flight: one build/deploy at a time. Without this a tab that
+            # crashed mid-deploy and was reopened could start a second parallel
+            # `pio` compile -- ~4 heavy cc1plus jobs on a 4 GB SBC, i.e. OOM.
+            with active_process_lock:
+                busy = active_process is not None and active_process.poll() is None
+            if busy:
+                self.send_response(409)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "error": "A command is already running. Stop it (Cancel) before starting another."
+                }).encode("utf-8"))
+                return
+
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
@@ -1327,13 +1393,16 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
                 ros_distro = env.get("ROS_DISTRO") or "jazzy"
             env["ROS_DISTRO"] = ros_distro
 
+            client_gone = False
+
             def send_event(event_type, payload):
+                nonlocal client_gone
                 msg = f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
                 try:
                     self.wfile.write(msg.encode("utf-8"))
                     self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
-                    pass
+                    client_gone = True
 
             # Adaptive execution: on a bare host that lacks /opt/ros, route ROS commands into
             # the distrobox named after the requested distro. Never do this when we are already
@@ -1387,6 +1456,20 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
                         if not line:
                             break
                         send_event("output", {"line": line, "text": line})
+                        if client_gone:
+                            # Browser closed/crashed: kill the whole process
+                            # group so a long build doesn't run unwatched.
+                            try:
+                                os.killpg(os.getpgid(active_process.pid), signal.SIGTERM)
+                                active_process.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                try:
+                                    os.killpg(os.getpgid(active_process.pid), signal.SIGKILL)
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+                            break
 
                 active_process.wait()
                 exit_code = active_process.returncode

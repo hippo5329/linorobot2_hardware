@@ -283,6 +283,11 @@
                     <label for="cfg-syslog-port" class="form-label">Syslog UDP Port</label>
                     <input type="number" id="cfg-syslog-port" class="form-input font-mono" value="514" placeholder="514 or 5140">
                   </div>
+                  <div class="form-group" style="margin-bottom:0;">
+                    <label for="cfg-wifi-monitor" class="form-label">Wi-Fi RSSI → syslog (min)</label>
+                    <input type="number" id="cfg-wifi-monitor" class="form-input font-mono" value="0" min="0" max="60" placeholder="0 = off">
+                    <span class="input-hint">Periodic <code>WIFI_MONITOR</code> RSSI report; 0 disables</span>
+                  </div>
                   <div class="btn-group-row" style="margin-top:0;">
                     <button type="button" id="btn-syslog-start" class="btn btn-sm btn-primary flex-1" title="Launch background UDP Syslog receiver">
                       <span>▶️ Launch Syslog Server</span>
@@ -331,7 +336,17 @@
                   <div class="form-group">
                     <label for="cfg-lidar-uart" class="form-label">LiDAR UART Number</label>
                     <input type="number" id="cfg-lidar-uart" class="form-input" value="1" min="0" max="3">
-                    <span class="input-hint">Fixed 230400 baud (hardware)</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="cfg-lidar-baud" class="form-label">LiDAR Baud Rate</label>
+                    <select id="cfg-lidar-baud" class="form-select font-mono">
+                      <option value="115200">115200 — LD14</option>
+                      <option value="230400" selected>230400 — LD06 / LD19 / LD14P / STL-06N / D300 / D500</option>
+                      <option value="460800">460800</option>
+                      <option value="921600">921600 — LD19 Plus / STL-27L</option>
+                      <option value="1000000">1000000</option>
+                    </select>
+                    <span class="input-hint">LDROBOT/LDLIDAR default rates (8N1). Match your model.</span>
                   </div>
                 </div>
               </div>
@@ -490,6 +505,7 @@
                   <option value="MPU6050">MPU6050 (6-DOF Accelerometer & Gyroscope)</option>
                   <option value="QMI8658">QMI8658 (Waveshare on-board IMU)</option>
                   <option value="MPU9250">MPU9250 (9-DOF IMU + Compass)</option>
+                  <option value="GY85">GY-85 (ADXL345 + ITG3200 + HMC5883L, 9-DOF)</option>
                   <option value="NONE">None (Disabled)</option>
                 </select>
               </div>
@@ -524,22 +540,36 @@
               </div>
 
               <div class="form-group">
-                <label class="form-label">IMU Covariance Overrides <span class="badge-optional">Optional</span></label>
-                <div class="form-grid" style="grid-template-columns:repeat(3,1fr);gap:8px;">
+                <label class="form-label">Covariance Overrides <span class="badge-optional">Optional</span></label>
+                <div class="form-grid" style="grid-template-columns:repeat(4,1fr);gap:8px;">
                   <div>
                     <label for="cfg-cov-accel" class="input-hint" style="display:block;">ACCEL_COV</label>
-                    <input type="number" id="cfg-cov-accel" class="form-input font-mono" value="" step="0.0001" placeholder="0.00001">
+                    <input type="number" id="cfg-cov-accel" class="form-input font-mono" value="" step="0.0001" placeholder="1e-5">
                   </div>
                   <div>
                     <label for="cfg-cov-gyro" class="input-hint" style="display:block;">GYRO_COV</label>
-                    <input type="number" id="cfg-cov-gyro" class="form-input font-mono" value="" step="0.0001" placeholder="0.00001">
+                    <input type="number" id="cfg-cov-gyro" class="form-input font-mono" value="" step="0.0001" placeholder="1e-5">
                   </div>
                   <div>
                     <label for="cfg-cov-ori" class="input-hint" style="display:block;">ORI_COV</label>
-                    <input type="number" id="cfg-cov-ori" class="form-input font-mono" value="" step="0.0001" placeholder="0.00001">
+                    <input type="number" id="cfg-cov-ori" class="form-input font-mono" value="" step="0.0001" placeholder="1e-5">
+                  </div>
+                  <div>
+                    <label for="cfg-cov-mag" class="input-hint" style="display:block;">MAG_COV</label>
+                    <input type="number" id="cfg-cov-mag" class="form-input font-mono" value="" step="0.0001" placeholder="1e-5">
                   </div>
                 </div>
-                <span class="input-hint">Diagonal covariance for the <code>/imu/data*</code> message. Blank = firmware default (0.00001).</span>
+                <div class="form-grid" style="grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;">
+                  <div>
+                    <label for="cfg-cov-pose" class="input-hint" style="display:block;">POSE_COV</label>
+                    <input type="text" id="cfg-cov-pose" class="form-input font-mono" value="" placeholder="scalar, or x,y,z,r,p,yaw">
+                  </div>
+                  <div>
+                    <label for="cfg-cov-twist" class="input-hint" style="display:block;">TWIST_COV</label>
+                    <input type="text" id="cfg-cov-twist" class="form-input font-mono" value="" placeholder="scalar, or x,y,z,r,p,yaw">
+                  </div>
+                </div>
+                <span class="input-hint">Diagonal covariance overrides. ACCEL / GYRO / ORI / MAG → <code>/imu/data*</code> (3 values); POSE / TWIST → <code>/odom/unfiltered</code> (6 values — a scalar expands, or list all 6). Blank = firmware default.</span>
               </div>
 
               <div class="form-group">
@@ -1268,17 +1298,8 @@ const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };</code></
                   <label for="auto-agent-multiserial-ports" class="form-label-xs">Multi-Serial Devices (space-separated for multi-MCU robots)</label>
                   <input type="text" id="auto-agent-multiserial-ports" class="form-input form-input-sm font-mono" value="/dev/ttyACM0 /dev/ttyUSB0" placeholder="/dev/ttyACM0 /dev/ttyUSB0">
                 </div>
-                <div class="form-group" style="width: 140px;">
-                  <label for="auto-agent-baud" class="form-label-xs">Agent Baud Rate</label>
-                  <select id="auto-agent-baud" class="form-select form-select-sm font-mono">
-                    <option value="1500000">1500000 (1.5M)</option>
-                    <option value="921600" selected>921600</option>
-                    <option value="460800">460800</option>
-                    <option value="115200">115200</option>
-                    <option value="57600">57600</option>
-                  </select>
-                </div>
               </div>
+              <p class="input-hint mt-1">Agent baud follows <strong>Serial Communication Baud Rate</strong> on Tab 1 (the firmware <code>BAUDRATE</code>).</p>
               <pre class="quick-cmd-code"><code id="preview-agent-cmd">ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/ttyUSB0 -b 921600</code></pre>
             </div>
 
@@ -1427,10 +1448,11 @@ const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };</code></
                     <span id="serial-btn-icon">🔌</span>
                     <span id="serial-btn-text">Browser USB</span>
                   </button>
-                  <select id="serial-baud-select" class="form-select form-select-sm" title="Serial Baud Rate">
+                  <select id="serial-baud-select" class="form-select form-select-sm" data-auto-managed="true" title="Serial baud rate — follows Tab 1 BAUDRATE until you pick one here (override for bootloader / MicroPython / non-linorobot boards)">
                     <option value="1500000">1500000 Baud (1.5M High Speed)</option>
                     <option value="921600" selected>921600 Baud (micro-ROS / Diagnostics)</option>
                     <option value="460800">460800 Baud</option>
+                    <option value="230400">230400 Baud</option>
                     <option value="115200">115200 Baud</option>
                     <option value="57600">57600 Baud</option>
                     <option value="9600">9600 Baud</option>

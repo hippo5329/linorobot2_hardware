@@ -61,12 +61,27 @@ def _define_num(text: str, macro: str):
 
 def _define_triple(text: str, macro: str):
     """Extract `#define MACRO { a, b, c }` as a list of 3 numbers, or None."""
+    return _define_vec(text, macro, 3)
+
+
+_COV_NUM = r'[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?'
+
+
+def _define_vec(text: str, macro: str, n: int):
+    """Extract `#define MACRO { v1, ..., vn }` as a list of n numbers, or None.
+    Accepts decimals and scientific notation (e.g. 1e-12)."""
     m = re.search(rf'^[ \t]*#define\s+{re.escape(macro)}\s*\{{\s*'
-                  r'(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\}',
+                  + r'\s*,\s*'.join([f'({_COV_NUM})'] * n) + r'\s*\}',
                   text, re.MULTILINE)
     if not m:
         return None
-    return [float(x) if "." in x else int(x) for x in m.groups()]
+    out = []
+    for x in m.groups():
+        try:
+            out.append(int(x))
+        except ValueError:
+            out.append(float(x))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -295,10 +310,15 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     _mb = _define_triple(content, "MAG_BIAS")
     if _mb is not None:
         tuning["mag_bias"] = _mb
-    for _k, _m in (("accel_cov", "ACCEL_COV"), ("gyro_cov", "GYRO_COV"), ("ori_cov", "ORI_COV")):
-        _t = _define_triple(content, _m)
+    for _k, _m in (("accel_cov", "ACCEL_COV"), ("gyro_cov", "GYRO_COV"),
+                   ("ori_cov", "ORI_COV"), ("mag_cov", "MAG_COV")):
+        _t = _define_vec(content, _m, 3)
         if _t is not None:
             tuning[_k] = _t[0] if _t[0] == _t[1] == _t[2] else _t
+    for _k, _m in (("pose_cov", "POSE_COV"), ("twist_cov", "TWIST_COV")):
+        _t = _define_vec(content, _m, 6)
+        if _t is not None:
+            tuning[_k] = _t[0] if len(set(_t)) == 1 else _t
     if tuning:
         spec["imu_tuning"] = tuning
 
@@ -481,6 +501,7 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     for key, fn, macro in [
         ("syslog_ip",     _ipv4, "SYSLOG_SERVER"),
         ("syslog_port",   _num,  "SYSLOG_PORT"),
+        ("wifi_monitor",  _num,  "WIFI_MONITOR"),
         ("lidar_ip",      _ipv4, "LIDAR_SERVER"),
         ("lidar_port",    _num,  "LIDAR_PORT"),
         ("lidar_baudrate", _num, "LIDAR_BAUDRATE"),
@@ -515,7 +536,7 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     # the generator re-emits them from the spec, so keep them out of the
     # verbatim passthrough or they would double-emit / ignore a UI clear.
     modeled = {"K_P", "K_I", "K_D", "MAG_BIAS", "ACCEL_COV", "GYRO_COV",
-               "ORI_COV", "TOPIC_PREFIX"}
+               "ORI_COV", "MAG_COV", "POSE_COV", "TWIST_COV", "TOPIC_PREFIX"}
     src_lines = content.split("\n")
     raw_defines: List[Dict[str, str]] = []
     stack: List[str] = []

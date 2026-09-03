@@ -833,10 +833,12 @@ function populateFormFromSpec(spec) {
   const setCk  = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
   setVal("cfg-syslog-ip", adv.syslog_ip);
   setVal("cfg-syslog-port", adv.syslog_port);
+  setVal("cfg-wifi-monitor", adv.wifi_monitor);
   setVal("cfg-lidar-ip", adv.lidar_ip);
   setVal("cfg-lidar-port", adv.lidar_port);
   setVal("cfg-lidar-rxd", adv.lidar_rxd);
   setVal("cfg-lidar-uart", adv.lidar_serial);
+  setVal("cfg-lidar-baud", adv.lidar_baudrate);
   setVal("cfg-ota-hostname", adv.ota_hostname);
   setVal("cfg-ota-password", adv.ota_password);
   setVal("cfg-ota-ip", adv.ota_ip);
@@ -858,10 +860,14 @@ function populateFormFromSpec(spec) {
   } else {
     setNum("cfg-mag-bias-x", null); setNum("cfg-mag-bias-y", null); setNum("cfg-mag-bias-z", null);
   }
-  const covScalar = (v) => Array.isArray(v) ? (v.every(x => x === v[0]) ? v[0] : v[0]) : v;
+  const covScalar = (v) => Array.isArray(v) ? v[0] : v;
+  const covList = (v) => Array.isArray(v) ? v.join(", ") : (v ?? "");
   setNum("cfg-cov-accel", covScalar(tune.accel_cov));
   setNum("cfg-cov-gyro", covScalar(tune.gyro_cov));
   setNum("cfg-cov-ori", covScalar(tune.ori_cov));
+  setNum("cfg-cov-mag", covScalar(tune.mag_cov));
+  setNum("cfg-cov-pose", covList(tune.pose_cov));
+  setNum("cfg-cov-twist", covList(tune.twist_cov));
   setPinVal("pin-battery", p.battery_pin);
   setPinVal("pin-sonar-trig", p.sonar?.trig);
   setPinVal("pin-sonar-echo", p.sonar?.echo);
@@ -962,6 +968,22 @@ function readSpecFromForm() {
       if (ac !== null) t.accel_cov = ac;
       if (gc !== null) t.gyro_cov = gc;
       if (oc !== null) t.ori_cov = oc;
+      const mc = getFloatOrNull("cfg-cov-mag");
+      if (mc !== null) t.mag_cov = mc;
+      // POSE/TWIST_COV: scalar, or a comma list (usually 6); kept as typed.
+      const covField = (id) => {
+        const raw = (document.getElementById(id)?.value || "").trim();
+        if (!raw) return null;
+        if (raw.includes(",")) {
+          const arr = raw.split(",").map((x) => Number(x.trim()));
+          return arr.some((x) => Number.isNaN(x)) ? null : arr;
+        }
+        const n = Number(raw);
+        return Number.isNaN(n) ? null : n;
+      };
+      const pc = covField("cfg-cov-pose"), tc = covField("cfg-cov-twist");
+      if (pc !== null) t.pose_cov = pc;
+      if (tc !== null) t.twist_cov = tc;
       return t;
     })(),
     baudrate: document.getElementById("cfg-baudrate") ? parseInt(document.getElementById("cfg-baudrate").value, 10) : 921600,
@@ -999,11 +1021,12 @@ function readSpecFromForm() {
   spec.advanced = {
     syslog_ip: _v("cfg-syslog-ip"),
     syslog_port: getInt("cfg-syslog-port", 514),
+    wifi_monitor: getInt("cfg-wifi-monitor", 0),
     lidar_ip: _v("cfg-lidar-ip"),
     lidar_port: getInt("cfg-lidar-port", 8889),
     lidar_rxd: getInt("cfg-lidar-rxd", -1),
     lidar_serial: getInt("cfg-lidar-uart", 1),
-    lidar_baudrate: 230400,
+    lidar_baudrate: getInt("cfg-lidar-baud", 230400),
     ota_hostname: _v("cfg-ota-hostname"),
     ota_password: _v("cfg-ota-password"),
     ota_ip: _v("cfg-ota-ip"),
@@ -1111,6 +1134,24 @@ function updateDynamicUIState() {
   document.getElementById("wifi-config-box").style.display = (transport === "WIFI_UDP" || (isWifiMcu && wifiTelemetry)) ? "block" : "none";
   if (document.getElementById("group-serial-baudrate")) {
     document.getElementById("group-serial-baudrate").style.display = transport === "SERIAL" ? "block" : "none";
+  }
+  // Console serial monitor baud follows the firmware BAUDRATE until the user
+  // picks one explicitly (override for bootloader / MicroPython / other boards).
+  // "followedValue" is the last value we pushed; if the select no longer holds
+  // it, the user changed it by hand -> stop following.
+  const _cfgBaud = document.getElementById("cfg-baudrate");
+  const _monBaud = document.getElementById("serial-baud-select");
+  if (_cfgBaud && _monBaud) {
+    const _followed = _monBaud.dataset.followedValue;
+    if (_monBaud.dataset.autoManaged !== "false" &&
+        (_followed === undefined || _followed === _monBaud.value)) {
+      if ([..._monBaud.options].some((o) => o.value === _cfgBaud.value)) {
+        _monBaud.value = _cfgBaud.value;
+      }
+      _monBaud.dataset.followedValue = _monBaud.value;
+    } else {
+      _monBaud.dataset.autoManaged = "false";
+    }
   }
 
   // Watchdog Timeout Group
@@ -1614,14 +1655,24 @@ function generateCppHeader(spec) {
   if (Array.isArray(tune.mag_bias) && tune.mag_bias.length === 3) {
     lines.push(`#define MAG_BIAS { ${tune.mag_bias.map(Number).join(", ")} }`);
   }
-  const covLine = (macro, v) => {
-    if (v == null) return;
-    const t = Array.isArray(v) ? v.map(Number) : [Number(v), Number(v), Number(v)];
+  const covLine = (macro, v, n = 3) => {
+    if (v == null || v === "") return;
+    let t;
+    if (Array.isArray(v)) t = v.map(Number);
+    else {
+      const s = String(v).trim();
+      t = s.includes(",") ? s.split(",").map((x) => Number(x.trim()))
+                          : Array(n).fill(Number(s));
+    }
+    if (t.some((x) => Number.isNaN(x))) return;
     lines.push(`#define ${macro} { ${t.join(", ")} }`);
   };
   covLine("ACCEL_COV", tune.accel_cov);
   covLine("GYRO_COV", tune.gyro_cov);
   covLine("ORI_COV", tune.ori_cov);
+  covLine("MAG_COV", tune.mag_cov);
+  covLine("POSE_COV", tune.pose_cov, 6);
+  covLine("TWIST_COV", tune.twist_cov, 6);
 
   if (sensors.battery_monitor === "ADC_DIVIDER") {
     const numFmt = (x) => { const f = Number(x); return Number.isInteger(f) ? String(f) : String(f).replace(/0+$/,"").replace(/\.$/,""); };
@@ -1722,23 +1773,45 @@ function generateCppHeader(spec) {
   // Never emit WIFI_AP_LIST with a placeholder SSID — initWifis() blocks at
   // boot until it joins, so a placeholder would brick a bare board.
   const _haveRealSsid = wifi.ssid && wifi.ssid.trim() && wifi.ssid.trim() !== "YOUR_WIFI_SSID";
+
+  // For a WiFi-UDP transport the PlatformIO env pins board_microros_transport =
+  // wifi, so firmware.ino compiles `set_microros_net_transports(AGENT_IP,
+  // AGENT_PORT)` unconditionally — those two macros MUST exist even before the
+  // user fills in credentials. They are not secrets: emit compile-safe
+  // #ifndef-guarded defaults here, and let the git-ignored wifi_config.h
+  // override them once real values are entered.
+  if (isWifiTransport) {
+    const agentIp = adv.agent_ip || wifi.agent_ip || "192.168.1.100";
+    lines.push(
+      ``,
+      `// micro-ROS WiFi transport (credentials & host IPs -> git-ignored wifi_config.h)`,
+      `#if __has_include("wifi_config.h")`,
+      `  #include "wifi_config.h"`,
+      `#endif`,
+      `#define USE_WIFI`,
+      `#ifndef AGENT_IP`,
+      `  #define AGENT_IP ${ipC(agentIp)}`,
+      `#endif`,
+      `#ifndef AGENT_PORT`,
+      `  #define AGENT_PORT ${wifi.agent_port || 8888}`,
+      `#endif`
+    );
+  }
+
   if (enableWifiNet && _haveRealSsid) {
     // Secrets (WIFI_AP_LIST, AGENT_IP, SYSLOG_SERVER, LIDAR_SERVER, OTA_PASSWORD)
     // live ONLY in the git-ignored config/custom/wifi_config.h — this tracked
     // header carries the non-secret feature flags and pulls the rest in.
-    lines.push(
-      ``,
-      isWifiTransport
-        ? `// WiFi & micro-ROS Agent Settings`
-        : `// Background WiFi (OTA & Syslog telemetry while micro-ROS runs on Serial)`,
-      `// Credentials & host IPs are in the git-ignored config/custom/wifi_config.h`,
-      `// (regenerated by the deploy from your form; template: wifi_config.h.template).`,
-      `#if __has_include("wifi_config.h")`,
-      `  #include "wifi_config.h"`,
-      `#endif`
-    );
-    if (isWifiTransport) {
-      lines.push(`#define USE_WIFI`, `#define AGENT_PORT ${wifi.agent_port || 8888}`);
+    if (!isWifiTransport) {
+      lines.push(
+        ``,
+        `// Background WiFi (OTA & Syslog telemetry while micro-ROS runs on Serial)`,
+        `// Credentials & host IPs are in the git-ignored config/custom/wifi_config.h`,
+        `// (regenerated by the deploy from your form; template: wifi_config.h.template).`,
+        `#if __has_include("wifi_config.h")`,
+        `  #include "wifi_config.h"`,
+        `#endif`
+      );
     }
     lines.push(`#define USE_ARDUINO_OTA`);
     lines.push(`#define OTA_HOSTNAME "${adv.ota_hostname || spec.robot_name || "linorobot2"}"`);
@@ -1748,6 +1821,9 @@ function generateCppHeader(spec) {
       `#define DEVICE_HOSTNAME "${spec.robot_name || "robot"}"`,
       `#define APP_NAME "hardware"`
     );
+    if (adv.wifi_monitor && adv.wifi_monitor > 0) {
+      lines.push(`#define WIFI_MONITOR ${adv.wifi_monitor} // min. period to send WiFi RSSI to syslog`);
+    }
     // LiDAR-over-UDP forwarding — only when the user ticked "Forward LiDAR
     // over UDP" (a non-blank IP field default must NOT enable it; USE_LIDAR_UDP
     // pulls in ESP32-only HardwareSerial APIs that break the Pico build).
@@ -2491,6 +2567,15 @@ function readAutomationOptions() {
   };
 }
 
+// The firmware serial BAUDRATE chosen on Tab 1 (#cfg-baudrate). Single source
+// of truth for the micro-ROS agent -b flag and the console serial monitor.
+function firmwareBaud(spec) {
+  spec = spec || (typeof currentSpec !== "undefined" ? currentSpec : null) || {};
+  return spec.baudrate
+    || spec.telemetry?.baudrate
+    || ((spec.mcu || "").toUpperCase() === "GENDRV" ? 1500000 : 921600);
+}
+
 // Update Dynamic Previews across Tab 5
 function updateAutomationPreviews() {
   const opts = readAutomationOptions();
@@ -2557,7 +2642,8 @@ function updateAutomationPreviews() {
     const distro = opts.rosDistro !== "none" ? opts.rosDistro : "jazzy";
     const port = document.getElementById("auto-flash-port")?.value || (isESP32(spec.mcu) ? "/dev/ttyUSB0" : "/dev/ttyACM0");
     const multiPorts = document.getElementById("auto-agent-multiserial-ports")?.value.trim() || "/dev/ttyACM0 /dev/ttyUSB0";
-    const baud = document.getElementById("auto-agent-baud")?.value || "921600";
+    // Agent -b always matches the firmware BAUDRATE chosen on Tab 1.
+    const baud = firmwareBaud(spec);
     const isWiFi = /WIFI|UDP/i.test(spec.transport || "");
     if (isWiFi) {
       agentCmdEl.innerText = `source /opt/ros/${distro}/setup.bash && [ -f "$HOME/uros_ws/install/setup.bash" ] && source "$HOME/uros_ws/install/setup.bash"; ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888`;
@@ -3334,19 +3420,57 @@ async function sendSerialCommand() {
   writer.releaseLock();
 }
 
+// The console (#serial-terminal-screen) is fed by four unbounded streams —
+// /api/exec deploy output, `ros2 topic echo`, the UDP syslog stream and the
+// Web Serial monitor. Without a cap the <div> count grows until the browser
+// tab runs out of memory. Keep at most MAX_TERMINAL_LINES rows and drop the
+// oldest in chunks; autoscroll is coalesced onto one rAF so a fast stream
+// doesn't force a synchronous reflow per line.
+const MAX_TERMINAL_LINES = 4000;
+const TERMINAL_TRIM_CHUNK = 512;
+let _terminalScrollQueued = false;
+
+function _trimTerminal(screen) {
+  const over = screen.childElementCount - MAX_TERMINAL_LINES;
+  if (over <= 0) return;
+  for (let i = 0, n = over + TERMINAL_TRIM_CHUNK; i < n && screen.firstChild; i++) {
+    screen.removeChild(screen.firstChild);
+  }
+}
+
+function _queueTerminalScroll(screen) {
+  const autoScroll = document.getElementById("chk-serial-autoscroll")?.checked ?? true;
+  if (!autoScroll || _terminalScrollQueued) return;
+  _terminalScrollQueued = true;
+  requestAnimationFrame(() => {
+    _terminalScrollQueued = false;
+    screen.scrollTop = screen.scrollHeight;
+  });
+}
+
 function appendTerminalLine(text, type = "out") {
   const screen = document.getElementById("serial-terminal-screen");
   if (!screen) return;
-
   const lineEl = document.createElement("div");
   lineEl.className = `terminal-line terminal-${type}`;
   lineEl.innerText = text;
   screen.appendChild(lineEl);
+  _trimTerminal(screen);
+  _queueTerminalScroll(screen);
+}
 
-  const autoScroll = document.getElementById("chk-serial-autoscroll")?.checked ?? true;
-  if (autoScroll) {
-    screen.scrollTop = screen.scrollHeight;
-  }
+// Like appendTerminalLine but the caller supplies already-escaped innerHTML
+// (the syslog stream renders coloured multi-span rows). Goes through the same
+// line cap.
+function appendTerminalHtml(html, type = "out") {
+  const screen = document.getElementById("serial-terminal-screen");
+  if (!screen) return;
+  const lineEl = document.createElement("div");
+  lineEl.className = `terminal-line terminal-${type}`;
+  lineEl.innerHTML = html;
+  screen.appendChild(lineEl);
+  _trimTerminal(screen);
+  _queueTerminalScroll(screen);
 }
 
 function clearTerminalScreen() {
@@ -3577,7 +3701,7 @@ function initAutomationEventListeners() {
       const opts = readAutomationOptions();
       const distro = opts.rosDistro !== "none" ? opts.rosDistro : "jazzy";
       const port = document.getElementById("auto-flash-port")?.value.trim() || "/dev/ttyUSB0";
-      const baud = document.getElementById("auto-agent-baud")?.value || "921600";
+      const baud = firmwareBaud();
       const cmd = `[ -e "${port}" ] && [ ! -w "${port}" ] && sudo chmod a+rw "${port}" 2>/dev/null || true; source /opt/ros/${distro}/setup.bash && [ -f "$HOME/uros_ws/install/setup.bash" ] && source "$HOME/uros_ws/install/setup.bash"; ros2 run micro_ros_agent micro_ros_agent serial --dev ${port} -b ${baud}`;
       executeCommandInTerminal(cmd, `Launching Single Serial micro-ROS Agent (${port} @ ${baud}) on Robot SBC`);
     });
@@ -3589,7 +3713,7 @@ function initAutomationEventListeners() {
       const opts = readAutomationOptions();
       const distro = opts.rosDistro !== "none" ? opts.rosDistro : "jazzy";
       const multiPorts = document.getElementById("auto-agent-multiserial-ports")?.value.trim() || "/dev/ttyACM0 /dev/ttyUSB0";
-      const baud = document.getElementById("auto-agent-baud")?.value || "921600";
+      const baud = firmwareBaud();
       const cmd = `for _d in ${multiPorts}; do [ -e "$_d" ] && [ ! -w "$_d" ] && sudo chmod a+rw "$_d" 2>/dev/null || true; done; source /opt/ros/${distro}/setup.bash && [ -f "$HOME/uros_ws/install/setup.bash" ] && source "$HOME/uros_ws/install/setup.bash"; ros2 run micro_ros_agent micro_ros_agent multiserial --devs "${multiPorts}" -b ${baud}`;
       executeCommandInTerminal(cmd, `Launching Multi-Serial micro-ROS Agent (${multiPorts} @ ${baud}) on Robot SBC`);
     });
@@ -3618,13 +3742,6 @@ function initAutomationEventListeners() {
   if (multiPortsElem) {
     multiPortsElem.addEventListener("input", () => {
       multiPortsElem.dataset.autoManaged = "false";
-      updateAutomationPreviews();
-    });
-  }
-
-  const agentBaudElem = document.getElementById("auto-agent-baud");
-  if (agentBaudElem) {
-    agentBaudElem.addEventListener("change", () => {
       updateAutomationPreviews();
     });
   }
@@ -3739,6 +3856,7 @@ function initAutomationEventListeners() {
     btnSerialConnect.addEventListener("click", toggleWebSerialConnection);
   }
 
+
   const btnSerialClear = document.getElementById("btn-serial-clear");
   if (btnSerialClear) {
     btnSerialClear.addEventListener("click", clearTerminalScreen);
@@ -3811,6 +3929,10 @@ function applyHostIpDefaults(hostIp) {
 async function executeCommandInTerminal(command, title = "Executing Command") {
   const terminalScreen = document.getElementById("serial-terminal-screen");
   const btnCancel = document.getElementById("btn-cancel-exec");
+  // Only an adc_calibrate run streams the 4096-entry LUT; for every other
+  // command the per-line accumulate + substring scan below is dead weight that
+  // grows O(n) in memory and O(n^2) in CPU over a long build log.
+  const _isAdcCal = /\badc_calibrate\b/.test(command);
 
   // Scroll to terminal
   const terminalEl = document.querySelector(".web-serial-console-card");
@@ -3895,7 +4017,10 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
     });
 
     if (!response.ok) {
-      appendTerminalLine(`❌ Server error: HTTP ${response.status}`, "err");
+      let detail = "";
+      try { detail = (await response.json())?.error || ""; } catch (_) {}
+      appendTerminalLine(`❌ ${detail || `Server error: HTTP ${response.status}`}`, "err");
+      if (detail) showToast(`⚠️ ${detail}`);
       if (btnCancel) btnCancel.style.display = "none";
       return;
     }
@@ -3966,10 +4091,10 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
 
 
                 // Live ADC Calibration Stream Parser
-                if (payload.line.includes("Test Linearity") || payload.line.includes("Generating LUT") || payload.line.includes("ADC_LUT")) {
+                if (_isAdcCal && (textLine.includes("Test Linearity") || textLine.includes("Generating LUT") || textLine.includes("ADC_LUT"))) {
                   const statusText = document.getElementById("adc-status-text");
                   if (statusText) {
-                    statusText.innerText = payload.line.trim();
+                    statusText.innerText = String(textLine).trim();
                     statusText.style.color = "#38bdf8";
                   }
                 }
@@ -3988,8 +4113,8 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
                   }
                 }
 
-                adcStreamBuffer += payload.line + "\n";
-                if (adcStreamBuffer.includes("ADC_LUT[4096]") && adcStreamBuffer.split("ADC_LUT[4096]").pop().includes("};")) {
+                if (_isAdcCal) adcStreamBuffer += textLine + "\n";
+                if (_isAdcCal && adcStreamBuffer.includes("ADC_LUT[4096]") && adcStreamBuffer.split("ADC_LUT[4096]").pop().includes("};")) {
                   try {
                     // Anchor on the LUT declaration so earlier build-log braces /
                     // numbers can't leak into the parsed array.
@@ -4054,6 +4179,21 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
   } finally {
     if (btnCancel) btnCancel.style.display = "none";
     if (typeof execTimerInterval !== "undefined" && execTimerInterval) clearInterval(execTimerInterval);
+    // The hero-badge timer is otherwise only stopped on the "Deployment
+    // SUCCEEDED" line, so a failed / aborted / disconnected deploy leaks a
+    // 1 Hz setInterval (and stacks one more on every retry).
+    if (typeof deployTimerInterval !== "undefined" && deployTimerInterval) {
+      clearInterval(deployTimerInterval);
+      deployTimerInterval = null;
+      const _hb = document.getElementById("hero-deploy-badge");
+      if (_hb && _hb.className.indexOf("succeeded") === -1) {
+        _hb.className = "deploy-hero-badge";
+        const _ht = document.getElementById("hero-deploy-status-text");
+        if (_ht) _ht.innerText = "Idle";
+        const _htm = document.getElementById("hero-deploy-timer");
+        if (_htm) _htm.style.display = "none";
+      }
+    }
     const _ep = document.getElementById("exec-progress-pill");
     if (_ep && _ep.className.indexOf("pill-online") === -1 && _ep.className.indexOf("pill-offline") === -1) {
       _ep.style.display = "none";
@@ -5031,7 +5171,13 @@ async function checkSyslogStatus() {
 }
 
 function updateSyslogUIState(data) {
-  isSyslogRunning = !!data.running;
+  // /api/syslog/status reports data.running; the start/stop responses report
+  // data.status ("running"/"already_running"/"stopped"). Accept either.
+  const running = (typeof data.running === "boolean")
+    ? data.running
+    : (data.status === "running" || data.status === "already_running");
+  data = { ...data, running };
+  isSyslogRunning = running;
   const badge = document.getElementById('syslog-status-badge');
   const badgeText = document.getElementById('syslog-status-text');
   const btnStart = document.getElementById('btn-syslog-start');
@@ -5109,15 +5255,7 @@ async function startSyslogServer(requestedPort) {
       const fallbackNote = data.fallback ? ` (fell back to :${data.port})` : '';
       showToast(`🟢 Syslog Server listening on UDP port ${data.port}${fallbackNote}!`);
       
-      // Append notification to terminal
-      const terminalScreen = document.getElementById('serial-terminal-screen');
-      if (terminalScreen) {
-        const lineEl = document.createElement('div');
-        lineEl.className = 'terminal-line terminal-in';
-        lineEl.textContent = `[SYSLOG SERVER] Listening on UDP 0.0.0.0:${data.port} | Saving to ${data.logfile}`;
-        terminalScreen.appendChild(lineEl);
-        terminalScreen.scrollTop = terminalScreen.scrollHeight;
-      }
+      appendTerminalLine(`[SYSLOG SERVER] Listening on UDP 0.0.0.0:${data.port} | Saving to ${data.logfile}`, "in");
     } else {
       showToast(`⚠️ Failed to start syslog: ${data.error || 'Unknown error'}`);
     }
@@ -5136,14 +5274,7 @@ async function stopSyslogServer() {
       activeSyslogEventSource = null;
     }
     showToast(`⏹️ Syslog Server stopped. Total packets: ${data.packets || 0}`);
-    const terminalScreen = document.getElementById('serial-terminal-screen');
-    if (terminalScreen) {
-      const lineEl = document.createElement('div');
-      lineEl.className = 'terminal-line terminal-dim';
-      lineEl.textContent = `[SYSLOG SERVER] Stopped (Captured ${data.packets || 0} packets).`;
-      terminalScreen.appendChild(lineEl);
-      terminalScreen.scrollTop = terminalScreen.scrollHeight;
-    }
+    appendTerminalLine(`[SYSLOG SERVER] Stopped (Captured ${data.packets || 0} packets).`, "dim");
   } catch (e) {
     showToast(`⚠️ Syslog stop error: ${e.message}`);
   }
@@ -5175,20 +5306,12 @@ function connectSyslogStream() {
 
       const chkStream = document.getElementById('chk-stream-syslog-terminal');
       if (!chkStream || chkStream.checked) {
-        const terminalScreen = document.getElementById('serial-terminal-screen');
-        if (terminalScreen) {
-          const lineEl = document.createElement('div');
-          lineEl.className = 'terminal-line terminal-syslog';
-          const timePart = data.time ? data.time.split(' ')[1] || data.time : '';
-          const escapedMsg = (data.message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          lineEl.innerHTML = `<span class="badge-syslog">SYSLOG</span> <span class="syslog-time">${timePart}</span> <span class="syslog-sender">[${data.sender}]</span> <span class="syslog-msg">${escapedMsg}</span>`;
-          terminalScreen.appendChild(lineEl);
-          
-          const chkAutoScroll = document.getElementById('chk-serial-autoscroll');
-          if (!chkAutoScroll || chkAutoScroll.checked) {
-            terminalScreen.scrollTop = terminalScreen.scrollHeight;
-          }
-        }
+        const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const timePart = data.time ? data.time.split(' ')[1] || data.time : '';
+        appendTerminalHtml(
+          `<span class="badge-syslog">SYSLOG</span> <span class="syslog-time">${esc(timePart)}</span> <span class="syslog-sender">[${esc(data.sender)}]</span> <span class="syslog-msg">${esc(data.message)}</span>`,
+          'syslog'
+        );
       }
     } catch (_) {}
   });

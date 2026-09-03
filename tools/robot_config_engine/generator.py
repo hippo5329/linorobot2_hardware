@@ -195,11 +195,17 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
     mb = tune.get("mag_bias")
     if isinstance(mb, (list, tuple)) and len(mb) == 3:
         lines.append(f"#define MAG_BIAS {{ {', '.join(_n(x) for x in mb)} }}")
-    for _macro, _key in (("ACCEL_COV", "accel_cov"), ("GYRO_COV", "gyro_cov"), ("ORI_COV", "ori_cov")):
+    # ACCEL/GYRO/ORI/MAG_COV are 3-vectors; POSE/TWIST_COV are 6-vectors — a
+    # scalar expands, a list is used as-is. All #ifndef-gated in firmware.
+    for _macro, _key, _len in (
+        ("ACCEL_COV", "accel_cov", 3), ("GYRO_COV", "gyro_cov", 3),
+        ("ORI_COV", "ori_cov", 3), ("MAG_COV", "mag_cov", 3),
+        ("POSE_COV", "pose_cov", 6), ("TWIST_COV", "twist_cov", 6),
+    ):
         _v = tune.get(_key)
-        if _v is None:
+        if _v is None or _v == "":
             continue
-        _t = list(_v) if isinstance(_v, (list, tuple)) else [_v, _v, _v]
+        _t = list(_v) if isinstance(_v, (list, tuple)) else [_v] * _len
         lines.append(f"#define {_macro} {{ {', '.join(_n(x) for x in _t)} }}")
 
     # I2C — BOARD_INIT is synthesised only when the user has actually defined
@@ -286,11 +292,24 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
         lines.append('  #include "wifi_config.h"')
         lines.append('#endif')
     if use_wifi:
+        # The PlatformIO env pins board_microros_transport = wifi, so
+        # firmware.ino compiles set_microros_net_transports(AGENT_IP, AGENT_PORT)
+        # unconditionally — both macros must exist even before credentials are
+        # entered. Not secrets: emit #ifndef-guarded defaults, overridden by
+        # wifi_config.h once real values exist.
+        agent_ip = adv.get("agent_ip") or telemetry.get("agent_ip") or "192.168.1.100"
         lines.append("#define USE_WIFI")
-        lines.append(f"#define AGENT_PORT {telemetry.get('agent_port', 8888)}")
+        lines.append("#ifndef AGENT_IP")
+        lines.append(f"  #define AGENT_IP {_ipv4_c(agent_ip)}")
+        lines.append("#endif")
+        lines.append("#ifndef AGENT_PORT")
+        lines.append(f"  #define AGENT_PORT {telemetry.get('agent_port', 8888)}")
+        lines.append("#endif")
     if use_wifi and telemetry.get("use_syslog", False):
         lines.append("#define USE_SYSLOG")
         lines.append(f"#define SYSLOG_PORT {adv.get('syslog_port', 514)}")
+        if adv.get("wifi_monitor"):
+            lines.append(f"#define WIFI_MONITOR {adv['wifi_monitor']} // min. period to send WiFi RSSI to syslog")
     if use_wifi and telemetry.get("use_arduino_ota", False):
         lines.append("#define USE_ARDUINO_OTA")
         if adv.get("ota_hostname"):
