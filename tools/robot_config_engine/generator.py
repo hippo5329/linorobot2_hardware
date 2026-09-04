@@ -191,14 +191,20 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
     # ── Sensor configuration ──────────────────────────────────────────
     lines.extend(["", "// Sensor Configuration"])
 
-    imu = sensors.get("imu_type") or sensors.get("imu", "USE_FAKE_IMU")
+    # Form-shape (sensors.imu, short name e.g. "QMI8658") checked before
+    # parser-shape (sensors.imu_type, full macro): parser.py's default spec
+    # always sets imu_type (even "USE_FAKE_IMU" as a placeholder), so an
+    # overlay that only sets imu — every web-UI form does — would otherwise
+    # always lose to a stale/default imu_type already in the base spec on
+    # any merge (same key-mismatch class as battery/sonar/INA219 above).
+    imu = sensors.get("imu") or sensors.get("imu_type", "USE_FAKE_IMU")
     if imu and imu not in ["NONE", "USE_FAKE_IMU", "FAKE"]:
         macro = imu if imu.startswith("USE_") else f"USE_{imu}_IMU"
         lines.append(f"#define {macro}")
     else:
         lines.append("// #define USE_FAKE_IMU")
 
-    mag = sensors.get("mag_type") or sensors.get("mag", "USE_FAKE_MAG")
+    mag = sensors.get("mag") or sensors.get("mag_type", "USE_FAKE_MAG")   # see imu comment above
     if mag and mag not in ["NONE", "USE_FAKE_MAG", "FAKE"]:
         macro = mag if mag.startswith("USE_") else f"USE_{mag}_MAG"
         lines.append(f"#define {macro}")
@@ -260,11 +266,15 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
     # I2C pins (SDA_PIN / SCL_PIN >= 0). A bare module leaves them unset: no
     # SDA_PIN/SCL_PIN and no BOARD_INIT, so firmware.ino's default Wire.begin()
     # path applies.
+    # pins.i2c (form-shape) checked before sensors.i2c_sda/scl (parser-shape):
+    # the web-UI form always writes pins.i2c, never sensors.i2c_sda/scl, so
+    # the parser-shape key from an existing base spec would otherwise always
+    # win on merge (same key-mismatch class as imu/mag above).
     _i2c_pins = pins.get("i2c", {})
-    i2c_sda = sensors.get("i2c_sda", _i2c_pins.get("sda", -1))
-    i2c_scl = sensors.get("i2c_scl", _i2c_pins.get("scl", -1))
-    i2c_sda = -1 if i2c_sda is None else i2c_sda
-    i2c_scl = -1 if i2c_scl is None else i2c_scl
+    i2c_sda = _i2c_pins.get("sda")
+    i2c_scl = _i2c_pins.get("scl")
+    i2c_sda = sensors.get("i2c_sda", -1) if i2c_sda is None else i2c_sda
+    i2c_scl = sensors.get("i2c_scl", -1) if i2c_scl is None else i2c_scl
     have_imported_board_init = any(d.get("name") == "BOARD_INIT" for d in spec.get("raw_defines", []))
     if i2c_sda >= 0 and i2c_scl >= 0:
         lines.append(f"#define SDA_PIN {i2c_sda}")

@@ -488,5 +488,56 @@ const int16_t ADC_LUT[4096] = {
         self.assertNotIn("#define USE_FAKE_IMU", updated_header)
         self.assertNotIn("#define USE_FAKE_MAG", updated_header)
 
+    def test_imu_mag_form_shape_wins_on_merge(self):
+        # Regression, same key-mismatch class as INA219/battery/sonar: the
+        # real web-UI form (readSpecFromForm()) only ever sets the form-shape
+        # sensors.imu / sensors.mag (short names, e.g. "QMI8658") — never the
+        # parser-shape sensors.imu_type / sensors.mag_type. A base spec
+        # parsed from an existing FAKE_IMU/FAKE_MAG header always carries a
+        # non-null imu_type/mag_type placeholder, so a form-shape-only
+        # overlay was previously silently ignored on merge.
+        raw = """
+#ifndef X_CONFIG_H
+#define X_CONFIG_H
+#define LINO_BASE DIFFERENTIAL_DRIVE
+#define USE_GENERIC_2_IN_MOTOR_DRIVER
+#define USE_FAKE_IMU
+#define USE_FAKE_MAG
+#define BAUDRATE 921600
+#endif
+"""
+        base = parse_header_to_spec(raw)
+        overlay = {"sensors": {"imu": "QMI8658", "mag": "AK09918"}}
+        merged, changes = merge_configurations(base, overlay)
+        self.assertGreater(len(changes), 0)
+        header = generate_config_header(merged)
+        self.assertIn("#define USE_QMI8658_IMU", header)
+        self.assertIn("#define USE_AK09918_MAG", header)
+        self.assertNotIn("#define USE_FAKE_IMU", header)
+        self.assertNotIn("#define USE_FAKE_MAG", header)
+
+    def test_i2c_pins_form_shape_wins_on_merge(self):
+        # Regression, same key-mismatch class: the web-UI form always sets
+        # pins.i2c.sda / pins.i2c.scl, never sensors.i2c_sda / i2c_scl. A
+        # base spec parsed from an existing header carries the latter, and
+        # generator.py used to check it first, so a fresh i2c pin choice
+        # from the form was silently dropped on merge.
+        raw = """
+#ifndef X_CONFIG_H
+#define X_CONFIG_H
+#define LINO_BASE DIFFERENTIAL_DRIVE
+#define USE_GENERIC_2_IN_MOTOR_DRIVER
+#define SDA_PIN 21
+#define SCL_PIN 22
+#define BAUDRATE 921600
+#endif
+"""
+        base = parse_header_to_spec(raw)
+        overlay = {"pins": {"i2c": {"sda": 32, "scl": 33}}}
+        merged, changes = merge_configurations(base, overlay)
+        header = generate_config_header(merged)
+        self.assertIn("#define SDA_PIN 32", header)
+        self.assertIn("#define SCL_PIN 33", header)
+
 if __name__ == "__main__":
     unittest.main()

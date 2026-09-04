@@ -262,6 +262,12 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     for macro, name in imu_map:
         if _define_bool(content, macro):
             spec["sensors"]["imu_type"] = name
+            # Also the form-shape short name (generator.py checks this
+            # first — see its comment): "USE_QMI8658_IMU" -> "QMI8658",
+            # "USE_FAKE_IMU" -> "FAKE", matching the <option value=...> the
+            # web-UI dropdown uses, so a later merge treats imu/imu_type as
+            # the same field instead of two differently-named copies.
+            spec["sensors"]["imu"] = name.replace("USE_", "").replace("_IMU", "")
             break
 
     mag_map = [
@@ -276,6 +282,7 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     for macro, name in mag_map:
         if _define_bool(content, macro):
             spec["sensors"]["mag_type"] = name
+            spec["sensors"]["mag"] = name.replace("USE_", "").replace("_MAG", "")
             break
 
     # ------------------------------------------------------------------
@@ -677,4 +684,35 @@ def merge_configurations(base_spec: Dict[str, Any], override_spec: Dict[str, Any
                     target[k] = v
 
     deep_merge(merged, override_spec)
+    _sync_sensor_alias(merged, changes, "imu", "imu_type", "_IMU")
+    _sync_sensor_alias(merged, changes, "mag", "mag_type", "_MAG")
     return merged, changes
+
+
+def _sync_sensor_alias(merged: Dict[str, Any], changes: List[Dict[str, Any]], short_key: str, full_key: str, suffix: str) -> None:
+    """Keep sensors.<short_key> (form-shape, e.g. "imu") and
+    sensors.<full_key> (parser-shape, e.g. "imu_type") in agreement after a
+    merge. generator.py checks the short key first (see its comments there),
+    so an overlay that only touches one of the pair must still make the
+    *other* one agree, or a base spec's stale copy of whichever key the
+    overlay didn't touch would win (or lose) unpredictably depending on
+    which key happened to be set in that particular caller -- this is the
+    same key-mismatch bug class as the battery/sonar/INA219/i2c fixes,
+    showing up here because two different, equally legitimate callers use
+    the two different key names (the real web-UI form always sends the
+    short key; a hand-built/legacy overlay -- e.g. a merge test fixture, or
+    an older API caller -- may send only the full key).
+    """
+    sensors = merged.get("sensors")
+    if not isinstance(sensors, dict):
+        return
+    touched_short = any(c["field"] == f"sensors.{short_key}" for c in changes)
+    touched_full = any(c["field"] == f"sensors.{full_key}" for c in changes)
+    if touched_full and not touched_short:
+        v = sensors.get(full_key)
+        if v:
+            sensors[short_key] = str(v).replace("USE_", "").replace(suffix, "")
+    elif touched_short and not touched_full:
+        v = sensors.get(short_key)
+        if v:
+            sensors[full_key] = v if str(v).startswith("USE_") else f"USE_{v}{suffix}"
