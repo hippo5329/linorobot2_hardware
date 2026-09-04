@@ -574,7 +574,7 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     modeled = {"K_P", "K_I", "K_D", "MAG_BIAS", "ACCEL_COV", "GYRO_COV",
                "ORI_COV", "MAG_COV", "POSE_COV", "TWIST_COV", "ENV_COV",
                "TOPIC_PREFIX", "USE_BMP280", "BMP280_ADDR", "DAC_PIN",
-               "USE_ADC_LUT", "ADC_LUT"}
+               "USE_ADC_LUT", "ADC_LUT", "USE_SONAR"}
     src_lines = content.split("\n")
     raw_defines: List[Dict[str, str]] = []
     stack: List[str] = []

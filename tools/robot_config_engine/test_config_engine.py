@@ -83,6 +83,10 @@ class TestRobotConfigEngine(unittest.TestCase):
         self.assertIn("#define BATTERY_MIN 9", header)
         self.assertIn("#define BATTERY_MAX 12.6", header)
         self.assertIn("#define ROBOT_WEIGHT 3.5", header)
+        # Sonar enabled in the fixture (sensors.sonar=True, pins.sonar trig/echo)
+        self.assertIn("#define USE_SONAR", header)
+        self.assertIn("#define TRIG_PIN 16", header)
+        self.assertIn("#define ECHO_PIN 17", header)
 
     def test_header_parsing_fake_sensors(self):
         # Sample C++ header with Fake IMU and Fake Mag

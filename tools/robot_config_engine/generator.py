@@ -330,10 +330,33 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
         if val is not None:
             lines.append(f"#define {macro} {_n(val)}")
 
-    # Sonar
-    sonar_trig = sensors.get("sonar_trig", -1)
-    sonar_echo = sensors.get("sonar_echo", -1)
+    # Sonar. firmware.ino/range.cpp actually gate on TRIG_PIN/ECHO_PIN alone —
+    # USE_SONAR isn't read anywhere — but app.js's generateCppHeader() (the
+    # client-side preview) emits it as a documentation marker next to them,
+    # matching USE_INA219/USE_BMP280/etc.; kept in parity here so a
+    # server-merged header (search-and-merge writes) and the browser preview
+    # aren't cosmetically different, and so re-parsing what we ourselves wrote
+    # is unambiguous either way.
+    # Sonar pins live in two places depending on who built the spec: the
+    # web-UI form (readSpecFromForm()) only ever writes pins.sonar.trig/echo;
+    # a spec parsed from an existing header (or a hand-built overlay like a
+    # test fixture) may instead carry the flat sensors.sonar_trig/echo
+    # parser.py also emits. A deep-merge can leave a stale -1 sitting in
+    # whichever location the overlay didn't touch, so -1 ("no pin", the
+    # sentinel used everywhere in this spec) is treated as absent rather
+    # than a real value — whichever location holds a real pin wins;
+    # pins.sonar (the current, form-shape location) is the tiebreaker.
+    def _valid_pin(v):
+        return v if isinstance(v, (int, float)) and v >= 0 else None
+    _sonar_pins = pins.get("sonar") or {}
+    sonar_trig = _valid_pin(_sonar_pins.get("trig"))
+    if sonar_trig is None: sonar_trig = _valid_pin(sensors.get("sonar_trig"))
+    sonar_echo = _valid_pin(_sonar_pins.get("echo"))
+    if sonar_echo is None: sonar_echo = _valid_pin(sensors.get("sonar_echo"))
+    if sonar_trig is None: sonar_trig = -1
+    if sonar_echo is None: sonar_echo = -1
     if sonar_trig >= 0 and sonar_echo >= 0:
+        lines.append("#define USE_SONAR")
         lines.append(f"#define TRIG_PIN {sonar_trig}")
         lines.append(f"#define ECHO_PIN {sonar_echo}")
 
