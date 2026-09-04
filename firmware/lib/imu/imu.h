@@ -48,6 +48,10 @@
     #define IMU LSM6DSOXIMU
 #endif
 
+#ifdef USE_ICM20948_IMU
+    #define IMU ICM20948IMU
+#endif
+
 #ifndef IMU
     #define USE_FAKE_IMU
     #define IMU FakeIMU
