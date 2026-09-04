@@ -1166,7 +1166,17 @@
                 <div class="schematic-svg-container">
                   <svg id="adc-circuit-svg" viewBox="0 0 760 220" class="schematic-svg" xmlns="http://www.w3.org/2000/svg">
                     <defs>
-                      <linearGradient id="grad-wire" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <!-- userSpaceOnUse + explicit coords, not the default
+                           objectBoundingBox: this gradient strokes a
+                           perfectly horizontal <line> (the ADC-node-to-MCU
+                           bus below), whose bounding box has zero height —
+                           objectBoundingBox gradients on a zero-height (or
+                           zero-width) shape resolve to a degenerate
+                           transform and render invisibly in Chromium, which
+                           made the bus wire (and everything tapped off it,
+                           like the filter capacitor's upper lead) look
+                           disconnected. -->
+                      <linearGradient id="grad-wire" gradientUnits="userSpaceOnUse" x1="340" y1="56" x2="570" y2="56">
                         <stop offset="0%" stop-color="#38bdf8"/>
                         <stop offset="100%" stop-color="#818cf8"/>
                       </linearGradient>
