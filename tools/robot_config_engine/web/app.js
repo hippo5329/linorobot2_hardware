@@ -3899,6 +3899,23 @@ function getDirectUploadOrBuildCmd(target, isUpload = true) {
     `set -e`,
     `export PATH="$HOME/.platformio/penv/bin:$HOME/.local/bin:$PATH"`,
     `export ROS_DISTRO=${rosDistro}`,
+    // test_sensors/test_motors/test_acc/adc_calibrate each carry their own
+    // platformio.ini (`extra_configs = ../firmware/platformio.ini`) and so
+    // build against the exact same lib_deps/env as firmware/, incl.
+    // micro_ros_platformio -- test_sensors/test_motors/test_acc genuinely
+    // link it (firmware/lib/imu's message-typed interface calls
+    // micro_ros_string_utilities_set() for frame_id), it's not dead weight.
+    // But each is its own PlatformIO project directory, and by default
+    // PlatformIO downloads+builds every lib_dep separately per project
+    // directory -- so without this, each one redoes micro_ros_platformio's
+    // very slow first-time build (compiles the full micro-ROS static lib)
+    // from scratch, even though it's identical to what firmware/ already
+    // built for the same board/env. Point PLATFORMIO_LIBDEPS_DIR at
+    // firmware/'s own libdeps location (its default, unchanged) so
+    // PlatformIO treats the library as already installed & built there.
+    ...(["test_sensors", "test_motors", "test_acc", "adc_calibrate"].includes(target) ? [
+      `export PLATFORMIO_LIBDEPS_DIR="$(pwd)/firmware/.pio/libdeps"`,
+    ] : []),
     ``,
     `echo "=== [1/2] Build tools (PlatformIO) ==============================="`,
     ensurePioToolchainSnippet(),   // first-run bootstrap so a bare SBC/box doesn't exit 127
