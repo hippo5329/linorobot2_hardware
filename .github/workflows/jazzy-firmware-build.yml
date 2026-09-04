@@ -2,10 +2,13 @@ name: ROS Jazzy Firmware Build
 
 on:
   pull_request:
-    # Run on PRs only to branches starting with 'jazzy'
+    # Run on PRs to jazzy, main, devel, and upstream-pr branches
     branches:
       - jazzy*
-    # Don't run when the following files are changed which don't effect firmware.
+      - main
+      - devel
+      - 'upstream-pr/**'
+    # Don't run when the following files are changed which don't affect firmware.
     paths-ignore:
       - 'docs/**'
       - .gitignore
@@ -13,12 +16,13 @@ on:
       - README.md
   
   push:
-    # Run on pushes to jazzy, master, and upstream-pr branches
+    # Run on pushes to jazzy, main, devel, and upstream-pr branches
     branches:
       - jazzy*
-      - master
+      - main
+      - devel
       - 'upstream-pr/**'
-    # Don't run when the following files are changed which don't effect firmware.
+    # Don't run when the following files are changed which don't affect firmware.
     paths-ignore:
       - 'docs/**'
       - .gitignore
