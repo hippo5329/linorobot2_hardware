@@ -246,6 +246,8 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
         ("USE_MPU9150_IMU", "USE_MPU9150_IMU"),
         ("USE_MPU9250_IMU", "USE_MPU9250_IMU"),
         ("USE_QMI8658_IMU", "USE_QMI8658_IMU"),
+        ("USE_LSM6DSOX_IMU", "USE_LSM6DSOX_IMU"),
+        ("USE_ICM20948_IMU", "USE_ICM20948_IMU"),
         ("USE_BNO085_IMU", "USE_BNO085_IMU"),
     ]
     for macro, name in imu_map:
@@ -259,6 +261,7 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
         ("USE_AK8963_MAG", "USE_AK8963_MAG"),
         ("USE_AK8975_MAG", "USE_AK8975_MAG"),
         ("USE_AK09918_MAG", "USE_AK09918_MAG"),
+        ("USE_ICM20948_MAG", "USE_ICM20948_MAG"),
         ("USE_QMC5883L_MAG", "USE_QMC5883L_MAG"),
     ]
     for macro, name in mag_map:
@@ -288,6 +291,14 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
         spec["sensors"]["battery_pin"] = int(bat.group(1))
     if _define_bool(content, "USE_INA219"):
         spec["sensors"]["use_ina219"] = True
+
+    # Environmental barometer (BMP280 / BME280)
+    if _define_bool(content, "USE_BMP280"):
+        spec["sensors"]["use_bmp280"] = True
+        spec["sensors"]["env_type"] = "BMP280"
+        _ba = re.search(r'^[ \t]*#define\s+BMP280_ADDR\s+(0x[0-9A-Fa-f]+|\d+)', content, re.MULTILINE)
+        if _ba:
+            spec["sensors"]["bmp280_addr"] = _ba.group(1)
 
     for _bk, _bm in [("battery_dip", "BATTERY_DIP"), ("battery_min", "BATTERY_MIN"),
                      ("battery_max", "BATTERY_MAX"), ("battery_cap", "BATTERY_CAP")]:
@@ -319,6 +330,9 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
         _t = _define_vec(content, _m, 6)
         if _t is not None:
             tuning[_k] = _t[0] if len(set(_t)) == 1 else _t
+    _ec = _define_vec(content, "ENV_COV", 3)
+    if _ec is not None:
+        tuning["env_cov"] = _ec[0] if _ec[0] == _ec[1] == _ec[2] else _ec
     if tuning:
         spec["imu_tuning"] = tuning
 
@@ -536,7 +550,8 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     # the generator re-emits them from the spec, so keep them out of the
     # verbatim passthrough or they would double-emit / ignore a UI clear.
     modeled = {"K_P", "K_I", "K_D", "MAG_BIAS", "ACCEL_COV", "GYRO_COV",
-               "ORI_COV", "MAG_COV", "POSE_COV", "TWIST_COV", "TOPIC_PREFIX"}
+               "ORI_COV", "MAG_COV", "POSE_COV", "TWIST_COV", "ENV_COV",
+               "TOPIC_PREFIX", "USE_BMP280", "BMP280_ADDR"}
     src_lines = content.split("\n")
     raw_defines: List[Dict[str, str]] = []
     stack: List[str] = []

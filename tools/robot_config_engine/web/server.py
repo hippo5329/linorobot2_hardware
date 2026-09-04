@@ -894,9 +894,17 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/ros2/hz_single":
-            # Quick single-shot frequency measurement
+            # Single-shot frequency measurement. `secs` (default 6, 3..20) is the
+            # sampling window — a 1 Hz topic needs several seconds to average
+            # meaningfully, so the caller can ask for a longer window on slow
+            # topics. The LAST `average rate:` line (most settled) is reported.
             qs = parse_qs(parsed.query)
             topic = qs.get("topic", ["/odom/unfiltered"])[0].strip()
+            try:
+                secs = int(round(float(qs.get("secs", ["6"])[0])))
+            except Exception:
+                secs = 6
+            secs = max(3, min(secs, 20))
             rate_val = "0.0"
             try:
                 setup_bash = ""
@@ -905,13 +913,13 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
                     if os.path.exists(p):
                         setup_bash = p
                         break
-                cmd = f"source {setup_bash} 2>/dev/null && timeout 2.5 stdbuf -oL -eL ros2 topic hz {topic}"
-                res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
-                for line in res.stdout.split("\n"):
-                    if "average rate:" in line:
-                        m = re.search(r"average rate:\s*([0-9.]+)", line)
-                        if m:
-                            rate_val = f"{float(m.group(1)):.1f} Hz"
+                cmd = (f"source {setup_bash} 2>/dev/null && "
+                       f"timeout {secs} stdbuf -oL -eL ros2 topic hz --window 10000 {topic}")
+                res = subprocess.run(["bash", "-c", cmd], capture_output=True,
+                                     text=True, timeout=secs + 5)
+                rates = re.findall(r"average rate:\s*([0-9.]+)", res.stdout)
+                if rates:
+                    rate_val = f"{float(rates[-1]):.2f} Hz"
             except Exception:
                 pass
 

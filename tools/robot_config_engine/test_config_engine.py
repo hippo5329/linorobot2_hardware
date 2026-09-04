@@ -170,6 +170,65 @@ class TestRobotConfigEngine(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any("assigned to multiple functions" in str(e) for e in errors))
 
+    def test_bmp280_env_roundtrip(self):
+        raw = """
+#ifndef ENVBOT_CONFIG_H
+#define ENVBOT_CONFIG_H
+#define LINO_BASE DIFFERENTIAL_DRIVE
+#define USE_BTS7960_MOTOR_DRIVER
+#define USE_BMP280
+#define BMP280_ADDR 0x76
+#define ENV_COV { 1.0, 0.01, 0.0025 }
+#define BAUDRATE 921600
+#endif
+"""
+        spec = parse_header_to_spec(raw)
+        self.assertTrue(spec["sensors"].get("use_bmp280"))
+        self.assertEqual(spec["sensors"].get("env_type"), "BMP280")
+        self.assertEqual(spec["sensors"].get("bmp280_addr"), "0x76")
+        self.assertEqual(spec["imu_tuning"]["env_cov"], [1.0, 0.01, 0.0025])
+
+        h = generate_config_header(spec)
+        self.assertEqual(h.count("#define USE_BMP280"), 1)
+        self.assertIn("#define BMP280_ADDR 0x76", h)
+        self.assertIn("#define ENV_COV { 1, 0.01, 0.0025 }", h)  # _n() trims 1.0 -> 1
+        self.assertEqual(h.count("#define ENV_COV"), 1)
+
+        # From the front-end form shape (sensors.env = "BME280")
+        fe = json.loads(json.dumps(self.valid_pico_spec))
+        fe["sensors"]["env"] = "BME280"
+        h2 = generate_config_header(fe)
+        self.assertIn("#define USE_BMP280", h2)
+
+    def test_modern_imu_roundtrip(self):
+        for imu, macro in (("LSM6DSOX", "USE_LSM6DSOX_IMU"),
+                           ("ICM20948", "USE_ICM20948_IMU")):
+            fe = json.loads(json.dumps(self.valid_pico_spec))
+            fe["sensors"]["imu"] = imu
+            h = generate_config_header(fe)
+            self.assertIn(f"#define {macro}", h)
+
+        # Enabling a known IMU with no explicit covariance -> datasheet default
+        fe = json.loads(json.dumps(self.valid_pico_spec))
+        fe["sensors"]["imu"] = "LSM6DSOX"
+        fe.pop("imu_tuning", None)
+        h = generate_config_header(fe)
+        self.assertIn("#define ACCEL_COV { 4.7e-05, 4.7e-05, 4.7e-05 }", h)
+        self.assertIn("#define GYRO_COV { 4.4e-07, 4.4e-07, 4.4e-07 }", h)
+        # An explicit value still wins over the default.
+        fe["imu_tuning"] = {"accel_cov": 0.02}
+        h = generate_config_header(fe)
+        self.assertIn("#define ACCEL_COV { 0.02, 0.02, 0.02 }", h)
+        self.assertEqual(h.count("#define ACCEL_COV"), 1)
+        raw = ("#ifndef ICMBOT_CONFIG_H\n#define ICMBOT_CONFIG_H\n"
+               "#define USE_ICM20948_IMU\n#define USE_ICM20948_MAG\n#endif\n")
+        spec = parse_header_to_spec(raw)
+        self.assertEqual(spec["sensors"]["imu_type"], "USE_ICM20948_IMU")
+        self.assertEqual(spec["sensors"]["mag_type"], "USE_ICM20948_MAG")
+        h = generate_config_header(spec)
+        self.assertEqual(h.count("#define USE_ICM20948_IMU"), 1)
+        self.assertIn("#define USE_ICM20948_MAG", h)
+
     def test_pid_magbias_covariance_topicprefix_roundtrip(self):
         raw = """
 #ifndef TUNEBOT_CONFIG_H

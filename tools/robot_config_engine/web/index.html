@@ -501,11 +501,17 @@
                 <label for="cfg-imu" class="form-label">Inertial Measurement Unit (IMU)</label>
                 <select id="cfg-imu" class="form-select">
                   <option value="FAKE" selected>Fake IMU (Bare Module Default — Zero Drift / Zero Hang)</option>
-                  <option value="BNO085">BNO085 / BNO080 (State-machine recovery & onboard fusion)</option>
-                  <option value="MPU6050">MPU6050 (6-DOF Accelerometer & Gyroscope)</option>
-                  <option value="QMI8658">QMI8658 (Waveshare on-board IMU)</option>
-                  <option value="MPU9250">MPU9250 (9-DOF IMU + Compass)</option>
-                  <option value="GY85">GY-85 (ADXL345 + ITG3200 + HMC5883L, 9-DOF)</option>
+                  <optgroup label="Recommended — low drift / low noise">
+                    <option value="BNO085">BNO085 / BNO080 (best — onboard sensor fusion, state-machine recovery)</option>
+                    <option value="LSM6DSOX">LSM6DSOX (ST 6-DOF, low noise)</option>
+                    <option value="ICM20948">ICM-20948 (TDK 9-DOF, low noise; onboard AK09916 mag)</option>
+                    <option value="QMI8658">QMI8658 (6-DOF, Waveshare on-board IMU)</option>
+                  </optgroup>
+                  <optgroup label="Legacy — higher drift / noise (may cause SLAM drift)">
+                    <option value="MPU9250">MPU9250 (9-DOF IMU + Compass)</option>
+                    <option value="MPU6050">MPU6050 (6-DOF)</option>
+                    <option value="GY85">GY-85 (ADXL345 + ITG3200 + HMC5883L, 9-DOF)</option>
+                  </optgroup>
                   <option value="NONE">None (Disabled)</option>
                 </select>
               </div>
@@ -514,8 +520,9 @@
                 <label for="cfg-mag" class="form-label">Magnetometer (Digital Compass)</label>
                 <select id="cfg-mag" class="form-select">
                   <option value="NONE" selected>Fake Magnetometer (Default / Estimated)</option>
-                  <option value="QMC5883L">QMC5883L (I2C Digital Compass)</option>
+                  <option value="ICM20948">ICM-20948 onboard AK09916 (needs ICM-20948 IMU)</option>
                   <option value="AK09918">AK09918 (I2C Digital Compass)</option>
+                  <option value="QMC5883L">QMC5883L (I2C Digital Compass)</option>
                   <option value="HMC5883L">HMC5883L (Legacy Compass)</option>
                 </select>
               </div>
@@ -539,9 +546,9 @@
                 <span class="input-hint">Subtracted from each raw reading (<code>#define MAG_BIAS</code>). Leave all blank to skip.</span>
               </div>
 
-              <div class="form-group">
+              <div class="form-group" style="grid-column:1 / -1;">
                 <label class="form-label">Covariance Overrides <span class="badge-optional">Optional</span></label>
-                <div class="form-grid" style="grid-template-columns:repeat(4,1fr);gap:8px;">
+                <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px 16px;">
                   <div>
                     <label for="cfg-cov-accel" class="input-hint" style="display:block;">ACCEL_COV</label>
                     <input type="number" id="cfg-cov-accel" class="form-input font-mono" value="" step="0.0001" placeholder="1e-5">
@@ -558,18 +565,20 @@
                     <label for="cfg-cov-mag" class="input-hint" style="display:block;">MAG_COV</label>
                     <input type="number" id="cfg-cov-mag" class="form-input font-mono" value="" step="0.0001" placeholder="1e-5">
                   </div>
-                </div>
-                <div class="form-grid" style="grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;">
-                  <div>
+                  <div style="grid-column:1 / -1;">
                     <label for="cfg-cov-pose" class="input-hint" style="display:block;">POSE_COV</label>
-                    <input type="text" id="cfg-cov-pose" class="form-input font-mono" value="" placeholder="scalar, or x,y,z,r,p,yaw">
+                    <input type="text" id="cfg-cov-pose" class="form-input font-mono" value="" placeholder="scalar, or x,y,z,roll,pitch,yaw">
                   </div>
-                  <div>
+                  <div style="grid-column:1 / -1;">
                     <label for="cfg-cov-twist" class="input-hint" style="display:block;">TWIST_COV</label>
-                    <input type="text" id="cfg-cov-twist" class="form-input font-mono" value="" placeholder="scalar, or x,y,z,r,p,yaw">
+                    <input type="text" id="cfg-cov-twist" class="form-input font-mono" value="" placeholder="scalar, or x,y,z,roll,pitch,yaw">
+                  </div>
+                  <div style="grid-column:1 / -1;">
+                    <label for="cfg-cov-env" class="input-hint" style="display:block;">ENV_COV</label>
+                    <input type="text" id="cfg-cov-env" class="form-input font-mono" value="" placeholder="scalar, or pressure, temperature, humidity">
                   </div>
                 </div>
-                <span class="input-hint">Diagonal covariance overrides. ACCEL / GYRO / ORI / MAG → <code>/imu/data*</code> (3 values); POSE / TWIST → <code>/odom/unfiltered</code> (6 values — a scalar expands, or list all 6). Blank = firmware default.</span>
+                <span class="input-hint">Diagonal covariance overrides. ACCEL / GYRO / ORI / MAG → <code>/imu/data*</code> (3 values); POSE / TWIST → <code>/odom/unfiltered</code> (6 values — a scalar expands, or list all 6); ENV → <code>/pressure /temperature /humidity</code> <code>.variance</code> (3 values). ACCEL / GYRO / MAG / ENV auto-fill from the selected sensor's datasheet — type to override, clear to fall back to the firmware default.</span>
               </div>
 
               <div class="form-group">
@@ -579,6 +588,16 @@
                   <option value="ADC_DIVIDER">ADC Resistor Voltage Divider (R1: 30kΩ, R2: 7.5kΩ)</option>
                   <option value="INA219">INA219 (I2C Current & Voltage Sensor)</option>
                 </select>
+              </div>
+
+              <div class="form-group">
+                <label for="cfg-env" class="form-label">Environmental Sensor (Barometer)</label>
+                <select id="cfg-env" class="form-select">
+                  <option value="NONE" selected>None</option>
+                  <option value="BMP280">BMP280 (I2C pressure + temperature)</option>
+                  <option value="BME280">BME280 (I2C pressure + temperature + humidity)</option>
+                </select>
+                <span class="input-hint">Publishes <code>/pressure</code> + <code>/temperature</code> (and <code>/humidity</code> for a BME280) at 1 Hz. The driver auto-detects the chip at I2C <code>0x77</code>/<code>0x76</code> — BMP280 vs BME280 here just sets your expectation.</span>
               </div>
 
               <!-- Battery Parameters Sub-Panel -->
@@ -607,8 +626,8 @@
                   </div>
                   <div class="form-group">
                     <label for="cfg-bat-dip" class="form-label">Voltage Drop Alert (DIP Ratio)</label>
-                    <input type="number" id="cfg-bat-dip" class="form-input" value="0.98" step="0.01" min="0.5" max="1.0">
-                    <span class="input-hint">Alert threshold for transient sag</span>
+                    <input type="number" id="cfg-bat-dip" class="form-input" value="" step="0.01" min="0.5" max="1.0" placeholder="blank = off · e.g. 0.98">
+                    <span class="input-hint">Off by default (it adds an out-of-band <code>/battery</code> burst on sag, costing I2C/serial bandwidth). Set e.g. <code>0.98</code> to enable.</span>
                   </div>
                 </div>
 

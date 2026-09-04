@@ -402,6 +402,25 @@ body {
   font-size: 0.8rem;
 }
 
+/* Disabled buttons / inputs — the custom .btn gradients hide the native
+   :disabled look, so grey them explicitly (e.g. the terminal Send button
+   before Connect, or on a browser without Web Serial). */
+.btn:disabled,
+.btn.is-disabled,
+.form-input:disabled,
+.form-select:disabled,
+.terminal-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(0.7);
+  box-shadow: none;
+}
+.btn:disabled:hover,
+.btn.is-disabled:hover {
+  transform: none;
+  filter: grayscale(0.7);
+}
+
 .github-link {
   color: var(--text-muted);
   display: flex;

@@ -228,7 +228,6 @@ const PRESETS = {
       battery_nominal_voltage: 11.1,
       battery_min_voltage: 9.0,
       battery_max_voltage: 12.6,
-      battery_dip: 0.98,
       sonar: true
     },
     pins: {
@@ -591,6 +590,13 @@ function initEventListeners() {
   });
   const otaHostEl = document.getElementById("cfg-ota-hostname");
   if (otaHostEl) otaHostEl.addEventListener("input", () => { otaHostEl.dataset.autoManaged = "false"; });
+  // Typing in a covariance field marks it user-owned so a later sensor change
+  // won't overwrite it with the datasheet default.
+  ["cfg-cov-accel", "cfg-cov-gyro", "cfg-cov-ori", "cfg-cov-mag", "cfg-cov-env",
+   "cfg-cov-pose", "cfg-cov-twist"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", () => { delete el.dataset.autoCov; });
+  });
   // show/hide password toggles
   [["cfg-wifi-pass-show", "cfg-wifi-pass"], ["cfg-ota-password-show", "cfg-ota-password"]].forEach(([chk, fld]) => {
     const c = document.getElementById(chk), f = document.getElementById(fld);
@@ -688,6 +694,11 @@ function normalizeSpecToFormShape(spec) {
         typeof s.sonar_echo === "number" && s.sonar_echo >= 0) {
       s.sonar = true;
     }
+    // Environmental barometer: parser emits env_type / use_bmp280
+    if (s.env == null) {
+      if (s.env_type) s.env = String(s.env_type).toUpperCase();
+      else if (s.use_bmp280) s.env = "BMP280";
+    }
     // Battery numeric fields use different names in the parser
     if (s.battery_capacity == null && s.battery_cap != null)            s.battery_capacity = s.battery_cap;
     if (s.battery_min_voltage == null && s.battery_min != null)         s.battery_min_voltage = s.battery_min;
@@ -761,11 +772,12 @@ function populateFormFromSpec(spec) {
   if (document.getElementById("cfg-bat-nom")) document.getElementById("cfg-bat-nom").value = spec.sensors?.battery_nominal_voltage || 11.1;
   if (document.getElementById("cfg-bat-min")) document.getElementById("cfg-bat-min").value = spec.sensors?.battery_min_voltage || 9.0;
   if (document.getElementById("cfg-bat-max")) document.getElementById("cfg-bat-max").value = spec.sensors?.battery_max_voltage || 12.6;
-  if (document.getElementById("cfg-bat-dip")) document.getElementById("cfg-bat-dip").value = spec.sensors?.battery_dip || 0.98;
+  if (document.getElementById("cfg-bat-dip")) document.getElementById("cfg-bat-dip").value = spec.sensors?.battery_dip ?? "";
   if (document.getElementById("cfg-bat-r1")) document.getElementById("cfg-bat-r1").value = spec.sensors?.battery_r1 || 30000;
   if (document.getElementById("cfg-bat-r2")) document.getElementById("cfg-bat-r2").value = spec.sensors?.battery_r2 || 7500;
   if (document.getElementById("cfg-bat-cap-val")) document.getElementById("cfg-bat-cap-val").value = spec.sensors?.battery_adc_cap || 1000;
   document.getElementById("cfg-sonar").value = spec.sensors?.sonar ? "true" : "false";
+  if (document.getElementById("cfg-env")) document.getElementById("cfg-env").value = spec.sensors?.env || "NONE";
 
   // Dual-Core
   if (document.getElementById("cfg-dual-core")) {
@@ -868,6 +880,7 @@ function populateFormFromSpec(spec) {
   setNum("cfg-cov-mag", covScalar(tune.mag_cov));
   setNum("cfg-cov-pose", covList(tune.pose_cov));
   setNum("cfg-cov-twist", covList(tune.twist_cov));
+  setNum("cfg-cov-env", covList(tune.env_cov));
   setPinVal("pin-battery", p.battery_pin);
   setPinVal("pin-sonar-trig", p.sonar?.trig);
   setPinVal("pin-sonar-echo", p.sonar?.echo);
@@ -887,6 +900,9 @@ function populateFormFromSpec(spec) {
 
 
   updateDynamicUIState();
+  // Fill datasheet covariance defaults for the loaded IMU/mag/barometer, but
+  // only into fields the imported spec left blank (explicit values are kept).
+  applySensorCovDefaults();
 }
 
 function setPinVal(id, val) {
@@ -954,11 +970,12 @@ function readSpecFromForm() {
       battery_nominal_voltage: getFloat("cfg-bat-nom", 11.1),
       battery_min_voltage: getFloat("cfg-bat-min", 9.0),
       battery_max_voltage: getFloat("cfg-bat-max", 12.6),
-      battery_dip: getFloat("cfg-bat-dip", 0.98),
+      battery_dip: getFloatOrNull("cfg-bat-dip"),   // blank = disabled (no BATTERY_DIP emitted)
       battery_r1: getFloat("cfg-bat-r1", 30000.0),
       battery_r2: getFloat("cfg-bat-r2", 7500.0),
       battery_adc_cap: getFloat("cfg-bat-cap-val", 1000.0),
-      sonar: document.getElementById("cfg-sonar").value === "true"
+      sonar: document.getElementById("cfg-sonar").value === "true",
+      env: document.getElementById("cfg-env")?.value || "NONE"
     },
     imu_tuning: (() => {
       const bx = getFloatOrNull("cfg-mag-bias-x"), by = getFloatOrNull("cfg-mag-bias-y"), bz = getFloatOrNull("cfg-mag-bias-z");
@@ -984,6 +1001,10 @@ function readSpecFromForm() {
       const pc = covField("cfg-cov-pose"), tc = covField("cfg-cov-twist");
       if (pc !== null) t.pose_cov = pc;
       if (tc !== null) t.twist_cov = tc;
+      // ENV_COV: BMP280 FluidPressure/Temperature/RelativeHumidity .variance
+      // { pressure Pa^2, temperature C^2, humidity (0..1)^2 } — scalar or 3-list.
+      const evc = covField("cfg-cov-env");
+      if (evc !== null) t.env_cov = evc;
       return t;
     })(),
     baudrate: document.getElementById("cfg-baudrate") ? parseInt(document.getElementById("cfg-baudrate").value, 10) : 921600,
@@ -1104,8 +1125,62 @@ function readSpecFromForm() {
 }
 
 // Handle Form Changes
+// Datasheet-derived default measurement variances. Auto-filled into the
+// Covariance Overrides when a sensor is enabled, so the generated header
+// ships realistic ACCEL/GYRO/ORI/MAG/ENV_COV instead of the firmware's
+// generic 1e-5 fallback. variance ≈ (noise_density · √(~100 Hz bandwidth))².
+// A value the user types is never overwritten (see applySensorCovDefaults).
+const SENSOR_COV_DEFAULTS = {
+  imu: {   // { accel: (m/s²)² , gyro: (rad/s)² , ori?: rad² (fused output only) }
+    BNO085:   { accel: 2.2e-4, gyro: 1.5e-6, ori: 4e-3 },
+    LSM6DSOX: { accel: 4.7e-5, gyro: 4.4e-7 },
+    ICM20948: { accel: 5.1e-4, gyro: 6.9e-6 },
+    QMI8658:  { accel: 8e-5,   gyro: 2e-6 },
+    MPU9250:  { accel: 9e-4,   gyro: 3e-6 },
+    MPU9150:  { accel: 1.5e-3, gyro: 3e-6 },
+    MPU6050:  { accel: 1.5e-3, gyro: 3e-6 },
+    GY85:     { accel: 1.8e-3, gyro: 4.4e-5 },
+  },
+  mag: {   // Tesla²
+    AK09918:  2.3e-14, ICM20948: 2.3e-14,
+    QMC5883L: 4e-14,   HMC5883L: 4e-14,
+    AK8963:   9e-14,   AK8975:   9e-14,
+  },
+  env: {   // [ pressure Pa² (σ≈1.7 Pa, IIR-x4) , temperature °C² (±0.5°C accuracy) , humidity (0..1)² (±3% RH) ]
+    BMP280: [3, 0.25, 0],
+    BME280: [3, 0.25, 9e-4],
+  },
+};
+
+// Fill the ACCEL/GYRO/ORI/MAG/ENV_COV fields from SENSOR_COV_DEFAULTS for the
+// currently-selected IMU / magnetometer / barometer. Only touches a field that
+// is empty or that we filled ourselves (data-auto-cov); a user-typed value —
+// or one being typed right now — is left alone. Clearing a sensor back to
+// NONE/FAKE also clears its auto-filled covariance.
+function applySensorCovDefaults() {
+  const setAuto = (id, val) => {
+    const el = document.getElementById(id);
+    if (!el || document.activeElement === el) return;
+    const userTyped = (el.value || "").trim() !== "" && el.dataset.autoCov !== "1";
+    if (userTyped) return;
+    if (val == null || val === "") {
+      if (el.dataset.autoCov === "1") { el.value = ""; delete el.dataset.autoCov; }
+      return;
+    }
+    el.value = Array.isArray(val) ? val.join(", ") : String(val);
+    el.dataset.autoCov = "1";
+  };
+  const d = SENSOR_COV_DEFAULTS.imu[document.getElementById("cfg-imu")?.value];
+  setAuto("cfg-cov-accel", d ? d.accel : null);
+  setAuto("cfg-cov-gyro",  d ? d.gyro  : null);
+  setAuto("cfg-cov-ori",   d && d.ori != null ? d.ori : null);
+  setAuto("cfg-cov-mag", SENSOR_COV_DEFAULTS.mag[document.getElementById("cfg-mag")?.value] ?? null);
+  setAuto("cfg-cov-env", SENSOR_COV_DEFAULTS.env[document.getElementById("cfg-env")?.value] ?? null);
+}
+
 function handleInputChange() {
   updateDynamicUIState();
+  applySensorCovDefaults();
   recomputeAll();
 }
 
@@ -1673,6 +1748,7 @@ function generateCppHeader(spec) {
   covLine("MAG_COV", tune.mag_cov);
   covLine("POSE_COV", tune.pose_cov, 6);
   covLine("TWIST_COV", tune.twist_cov, 6);
+  covLine("ENV_COV", tune.env_cov, 3);   // { pressure, temperature, humidity } variance
 
   if (sensors.battery_monitor === "ADC_DIVIDER") {
     const numFmt = (x) => { const f = Number(x); return Number.isInteger(f) ? String(f) : String(f).replace(/0+$/,"").replace(/\.$/,""); };
@@ -1702,6 +1778,12 @@ function generateCppHeader(spec) {
     lines.push(`#define USE_INA219`);
   }
 
+  // Environmental barometer — BMP280 & BME280 share the macro; the driver
+  // reads the chip id at runtime and only publishes /humidity for a BME280.
+  if (sensors.env && sensors.env !== "NONE") {
+    lines.push(`#define USE_BMP280`);
+  }
+
   if (sensors.sonar && pins.sonar) {
     lines.push(
       `#define USE_SONAR`,
@@ -1718,7 +1800,8 @@ function generateCppHeader(spec) {
   const i2c = pins.i2c || {};
   const i2cUsed = (sensors.imu && sensors.imu !== "FAKE" && sensors.imu !== "FAKE_IMU" && sensors.imu !== "NONE")
                || (sensors.mag && sensors.mag !== "NONE")
-               || sensors.battery_monitor === "INA219";
+               || sensors.battery_monitor === "INA219"
+               || (sensors.env && sensors.env !== "NONE");
   const sda = i2c.sda, scl = i2c.scl;
   if (i2cUsed && sda !== undefined && scl !== undefined && sda >= 0 && scl >= 0) {
     lines.push(``, `// I2C Bus`, `#define SDA_PIN ${sda}`, `#define SCL_PIN ${scl}`);
@@ -2696,6 +2779,111 @@ function getToolchainInstallCmd(opts) {
   return lines.length > 0 ? lines.join(" && \\\n") : "# No toolchain installations selected";
 }
 
+// Idempotent shell snippet that GUARANTEES a working `pio` on PATH, installing
+// PlatformIO Core (and the few OS packages its installer needs) the first time.
+// Standalone actions — I2C auto-detect, ADC calibrate — otherwise just run a bare
+// `pio ...` and die with "command not found" (exit 127) on a fresh SBC / distrobox
+// that has never run a Full Deploy. Mirrors Phase 1 of generateDeployScript.
+// Meant to be the first lines of a command passed to executeCommandInTerminal().
+function ensurePioToolchainSnippet() {
+  return [
+    `export PATH="$HOME/.platformio/penv/bin:$HOME/.local/bin:$PATH"`,
+    `_pio_ok() { command -v pio >/dev/null 2>&1 && pio --version >/dev/null 2>&1; }`,
+    `if ! _pio_ok; then`,
+    `  echo ">>> PlatformIO not found - installing build toolchain (first run only, ~1-2 min)..."`,
+    `  if command -v pio >/dev/null 2>&1; then echo ">>> (removing a broken PlatformIO venv)"; rm -rf "$HOME/.platformio/penv"; hash -r; fi`,
+    `  if ! python3 -c "import venv, ensurepip" >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then`,
+    `    if command -v apt-get >/dev/null 2>&1; then`,
+    `      (sudo -n apt-get update -y 2>/dev/null || sudo apt-get update -y) || true`,
+    `      sudo -n apt-get install -y python3 python3-venv python3-pip curl git 2>/dev/null || sudo apt-get install -y python3 python3-venv python3-pip curl git || true`,
+    `    elif command -v dnf >/dev/null 2>&1; then`,
+    `      (sudo -n dnf install -y python3 python3-pip curl git 2>/dev/null || sudo dnf install -y python3 python3-pip curl git) || true`,
+    `    else`,
+    `      echo ">>> WARN: no apt-get/dnf - assuming python3+curl already present"`,
+    `    fi`,
+    `  fi`,
+    `  curl -fsSL -o /tmp/get-platformio.py https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py || { echo "ERROR: cannot download the PlatformIO installer (network?)"; exit 1; }`,
+    `  python3 /tmp/get-platformio.py || { echo "ERROR: PlatformIO Core installation failed"; exit 1; }`,
+    `  export PATH="$HOME/.platformio/penv/bin:$HOME/.local/bin:$PATH"; hash -r`,
+    `fi`,
+    `_pio_ok || { echo "ERROR: PlatformIO Core still not working ('pio --version' fails)"; exit 1; }`,
+    `echo ">>> PlatformIO ready: $(pio --version 2>/dev/null || echo installed)"`,
+  ].join("\n");
+}
+
+// micro-ROS agent launch with graceful degradation:
+//   native `ros2 run micro_ros_agent`  (from /opt/ros or ~/uros_ws)
+//   -> apt `ros-<distro>-micro-ros-agent`  (if the ROS 2 apt repo is present)
+//   -> docker / podman `microros/micro-ros-agent:<distro>`  (-> :rolling tag)
+//   -> clear error pointing at the "Install ROS 2" button.
+// mode: "serial" | "multiserial" | "udp".
+function microRosAgentCmd(mode, opt) {
+  const distro   = opt.distro || "jazzy";
+  const baud     = opt.baud || 921600;
+  const udpPort  = opt.udpPort || 8888;
+  const port     = (opt.port || "/dev/ttyUSB0").trim();
+  const ports    = (opt.ports || "/dev/ttyACM0 /dev/ttyUSB0").trim();
+
+  let agentArgs, deviceFlags, permPorts;
+  if (mode === "multiserial") {
+    agentArgs = `multiserial --devs "${ports}" -b ${baud}`;
+    deviceFlags = ports.split(/\s+/).filter(Boolean).map(d => `--device ${d}`).join(" ");
+    permPorts = ports;
+  } else if (mode === "udp") {
+    agentArgs = `udp4 --port ${udpPort}`;
+    deviceFlags = "";
+    permPorts = "";
+  } else { // serial
+    agentArgs = `serial --dev ${port} -b ${baud}`;
+    deviceFlags = `--device ${port}`;
+    permPorts = port;
+  }
+
+  const argsEcho = agentArgs.replace(/"/g, '\\"');   // safe inside a "…" echo
+  return [
+    `DISTRO="${distro}"`,
+    permPorts
+      ? `for _d in ${permPorts}; do [ -e "$_d" ] && [ ! -w "$_d" ] && sudo chmod a+rw "$_d" 2>/dev/null || true; done`
+      : `# udp transport - no serial port to free`,
+    ``,
+    `# 1. Native ROS 2 agent (from /opt/ros/<distro> or ~/uros_ws)`,
+    `if [ -f "/opt/ros/$DISTRO/setup.bash" ]; then`,
+    `  source "/opt/ros/$DISTRO/setup.bash"`,
+    `  [ -f "$HOME/uros_ws/install/setup.bash" ] && source "$HOME/uros_ws/install/setup.bash"`,
+    `  if ros2 pkg prefix micro_ros_agent >/dev/null 2>&1; then`,
+    `    echo ">>> micro-ROS agent: native 'ros2 run' (ROS 2 $DISTRO)"`,
+    `    exec ros2 run micro_ros_agent micro_ros_agent ${agentArgs}`,
+    `  fi`,
+    `  if command -v apt-get >/dev/null 2>&1; then`,
+    `    echo ">>> micro_ros_agent package missing - trying apt install ros-$DISTRO-micro-ros-agent ..."`,
+    `    if sudo -n apt-get install -y "ros-$DISTRO-micro-ros-agent" 2>/dev/null || sudo apt-get install -y "ros-$DISTRO-micro-ros-agent"; then`,
+    `      source "/opt/ros/$DISTRO/setup.bash"`,
+    `      if ros2 pkg prefix micro_ros_agent >/dev/null 2>&1; then`,
+    `        echo ">>> micro-ROS agent: native 'ros2 run' (apt-installed)"`,
+    `        exec ros2 run micro_ros_agent micro_ros_agent ${agentArgs}`,
+    `      fi`,
+    `    fi`,
+    `  fi`,
+    `fi`,
+    ``,
+    `# 2. Docker / Podman fallback`,
+    `_DK=""`,
+    `command -v docker >/dev/null 2>&1 && _DK=docker`,
+    `[ -z "$_DK" ] && command -v podman >/dev/null 2>&1 && _DK=podman`,
+    `if [ -n "$_DK" ]; then`,
+    `  IMG="microros/micro-ros-agent:$DISTRO"`,
+    `  echo ">>> no native ROS 2 agent - falling back to: $_DK run $IMG"`,
+    `  $_DK pull "$IMG" 2>/dev/null || { echo ">>> no '$DISTRO' tag on Docker Hub - trying ':rolling'"; IMG="microros/micro-ros-agent:rolling"; $_DK pull "$IMG" 2>/dev/null || true; }`,
+    `  exec $_DK run --rm --net=host --name "uros_agent_${mode}" ${deviceFlags} "$IMG" ${agentArgs}`,
+    `fi`,
+    ``,
+    `echo "ERROR: no micro-ROS agent available (no ROS 2 $DISTRO, no docker/podman)."`,
+    `echo "  fix: click 'Install ROS 2 Distribution & Packages' above, or install Docker, then retry."`,
+    `echo "  manual: docker run --rm --net=host ${deviceFlags} microros/micro-ros-agent:$DISTRO ${argsEcho}"`,
+    `exit 1`,
+  ].join("\n");
+}
+
 // Generate ROS 2 Install Commands
 function getRos2InstallCmd(opts) {
   const distro = opts.rosDistro;
@@ -3508,6 +3696,10 @@ function getDirectUploadOrBuildCmd(target, isUpload = true) {
     `set -e`,
     `export PATH="$HOME/.platformio/penv/bin:$HOME/.local/bin:$PATH"`,
     `export ROS_DISTRO=${rosDistro}`,
+    ``,
+    `echo "=== [1/2] Build tools (PlatformIO) ==============================="`,
+    ensurePioToolchainSnippet(),   // first-run bootstrap so a bare SBC/box doesn't exit 127
+    `echo "=== [2/2] ${isUpload ? "Building & flashing" : "Building"} ${target} ==============="`,
     `[ "$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null || echo 8000000)" -lt 6000000 ] && export PLATFORMIO_BUILD_JOBS=2 MAKEFLAGS="-j2" || true`,
     `if [ -f "/opt/ros/${rosDistro}/setup.bash" ]; then source "/opt/ros/${rosDistro}/setup.bash"; fi`,
     `if [ -f "$HOME/uros_ws/install/setup.bash" ]; then source "$HOME/uros_ws/install/setup.bash"; fi`,
@@ -3583,6 +3775,25 @@ function getDirectUploadOrBuildCmd(target, isUpload = true) {
   }
 
   return lines.join("\n");
+}
+
+// After flashing a diagnostic sketch (test_sensors / test_motors / test_acc),
+// append a read-only serial monitor so its output streams into the console.
+// Dependency-free (stty + cat, like the "Stream SBC Serial" button); runs until
+// the user hits Stop. No-op for BOOTSEL / AUTO ports or non-diagnostic targets.
+function withSerialMonitor(cmd, target, port) {
+  const streamable = ["test_sensors", "test_motors", "test_acc"];
+  if (!streamable.includes(target)) return cmd;
+  if (!port || port.includes("BOOTSEL") || port.includes("AUTO")) return cmd;
+  const baud = firmwareBaud();
+  return cmd + [
+    ``,
+    `echo`,
+    `echo "=== Serial monitor: ${port} @ ${baud} — press ⏹ Stop to end ==="`,
+    `sleep 1`,
+    `stty -F "${port}" ${baud} raw -echo 2>/dev/null || true`,
+    `exec cat "${port}"`,
+  ].join("\n");
 }
 
 
@@ -3702,7 +3913,7 @@ function initAutomationEventListeners() {
       const distro = opts.rosDistro !== "none" ? opts.rosDistro : "jazzy";
       const port = document.getElementById("auto-flash-port")?.value.trim() || "/dev/ttyUSB0";
       const baud = firmwareBaud();
-      const cmd = `[ -e "${port}" ] && [ ! -w "${port}" ] && sudo chmod a+rw "${port}" 2>/dev/null || true; source /opt/ros/${distro}/setup.bash && [ -f "$HOME/uros_ws/install/setup.bash" ] && source "$HOME/uros_ws/install/setup.bash"; ros2 run micro_ros_agent micro_ros_agent serial --dev ${port} -b ${baud}`;
+      const cmd = microRosAgentCmd("serial", { distro, port, baud });
       executeCommandInTerminal(cmd, `Launching Single Serial micro-ROS Agent (${port} @ ${baud}) on Robot SBC`);
     });
   }
@@ -3714,7 +3925,7 @@ function initAutomationEventListeners() {
       const distro = opts.rosDistro !== "none" ? opts.rosDistro : "jazzy";
       const multiPorts = document.getElementById("auto-agent-multiserial-ports")?.value.trim() || "/dev/ttyACM0 /dev/ttyUSB0";
       const baud = firmwareBaud();
-      const cmd = `for _d in ${multiPorts}; do [ -e "$_d" ] && [ ! -w "$_d" ] && sudo chmod a+rw "$_d" 2>/dev/null || true; done; source /opt/ros/${distro}/setup.bash && [ -f "$HOME/uros_ws/install/setup.bash" ] && source "$HOME/uros_ws/install/setup.bash"; ros2 run micro_ros_agent micro_ros_agent multiserial --devs "${multiPorts}" -b ${baud}`;
+      const cmd = microRosAgentCmd("multiserial", { distro, ports: multiPorts, baud });
       executeCommandInTerminal(cmd, `Launching Multi-Serial micro-ROS Agent (${multiPorts} @ ${baud}) on Robot SBC`);
     });
   }
@@ -3724,7 +3935,7 @@ function initAutomationEventListeners() {
     btnExecAgentUdp.addEventListener("click", () => {
       const opts = readAutomationOptions();
       const distro = opts.rosDistro !== "none" ? opts.rosDistro : "jazzy";
-      const cmd = `source /opt/ros/${distro}/setup.bash && [ -f "$HOME/uros_ws/install/setup.bash" ] && source "$HOME/uros_ws/install/setup.bash"; ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888`;
+      const cmd = microRosAgentCmd("udp", { distro, udpPort: 8888 });
       executeCommandInTerminal(cmd, `Launching UDP WiFi micro-ROS Agent (:8888) on Robot SBC`);
     });
   }
@@ -3784,7 +3995,7 @@ function initAutomationEventListeners() {
         if (targetSel) targetSel.value = target;
         updateAutomationPreviews();
         const port = document.getElementById("auto-flash-port")?.value.trim() || (isESP32(currentSpec.mcu) ? "/dev/ttyUSB0" : "/dev/ttyACM0");
-        const cmd = getDirectUploadOrBuildCmd(target, true);
+        const cmd = withSerialMonitor(getDirectUploadOrBuildCmd(target, true), target, port);
         executeCommandInTerminal(cmd, `⚡ Uploading ${desc} (${target}/ -> ${port})`);
       });
     }
@@ -3795,7 +4006,7 @@ function initAutomationEventListeners() {
     btnExecUpload.addEventListener("click", () => {
       const target = document.getElementById("auto-flash-target")?.value || "firmware";
       const port = document.getElementById("auto-flash-port")?.value.trim() || (isESP32(currentSpec.mcu) ? "/dev/ttyUSB0" : "/dev/ttyACM0");
-      const cmd = getDirectUploadOrBuildCmd(target, true);
+      const cmd = withSerialMonitor(getDirectUploadOrBuildCmd(target, true), target, port);
       executeCommandInTerminal(cmd, `Flashing Microcontroller (${target}/ -> ${port})`);
     });
   }
@@ -3854,6 +4065,24 @@ function initAutomationEventListeners() {
   const btnSerialConnect = document.getElementById("btn-serial-connect");
   if (btnSerialConnect) {
     btnSerialConnect.addEventListener("click", toggleWebSerialConnection);
+  }
+
+  // Web Serial is Chromium-only (and needs HTTPS or localhost). On a browser
+  // without it, grey out Connect / the command input / Send so it's clear the
+  // in-browser serial console isn't available here.
+  if (!("serial" in navigator)) {
+    const why = "In-browser serial needs Chrome / Edge / Opera over HTTPS or localhost";
+    [["btn-serial-connect", "serial-btn-text", "Serial N/A"],
+     ["btn-serial-send", null, null],
+     ["serial-input-text", null, null]].forEach(([id, txtId, txt]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = true;
+      el.classList.add("is-disabled");
+      el.title = why;
+      if (txtId && txt) { const t = document.getElementById(txtId); if (t) t.textContent = txt; }
+      if (id === "serial-input-text") el.placeholder = why;
+    });
   }
 
 
@@ -3925,6 +4154,17 @@ function applyHostIpDefaults(hostIp) {
   });
 }
 
+// Bring the live terminal on-screen: activate the Automation tab (the console
+// lives there) and scroll the console card into view. Used by the ROS 2 topic
+// stream / Hz buttons, which sit further up the same tab, so their output
+// otherwise lands out of sight.
+function jumpToTerminal() {
+  const autoTab = document.querySelector('[data-tab="tab-automation"]');
+  if (autoTab && !autoTab.classList.contains("active")) autoTab.click();
+  const card = document.querySelector(".web-serial-console-card");
+  if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 // Execute Command with Live Streaming Output in Terminal Console
 async function executeCommandInTerminal(command, title = "Executing Command") {
   const terminalScreen = document.getElementById("serial-terminal-screen");
@@ -3934,10 +4174,36 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
   // grows O(n) in memory and O(n^2) in CPU over a long build log.
   const _isAdcCal = /\badc_calibrate\b/.test(command);
 
-  // Scroll to terminal
+  // Surface the live terminal: the console lives on the Automation tab, so a
+  // command fired from any other tab (I2C auto-detect, ADC calibrate, branch
+  // switch, …) would otherwise stream out of sight. Activate that tab, then
+  // scroll its console into view. No-op when already there. Remember where the
+  // user was so we can hop back when the command finishes (see finally block).
+  const _origTabBtn = document.querySelector(".nav-tab.active");
+  const _origScrollY = window.scrollY;
+  const _autoTabBtn = document.querySelector('[data-tab="tab-automation"]');
+  let _switchedTab = false;
+  if (_autoTabBtn && !_autoTabBtn.classList.contains("active")) {
+    _autoTabBtn.click();
+    _switchedTab = true;
+  }
+  const _restoreOrigTab = () => {
+    // only if we moved them AND they're still sitting on Automation (didn't
+    // navigate away themselves mid-run)
+    if (_switchedTab && _origTabBtn && _autoTabBtn && _autoTabBtn.classList.contains("active")) {
+      _origTabBtn.click();
+      // ...and back to the scroll position they launched from (the trigger
+      // button is often at the top of its tab; scrollIntoView had jumped us
+      // down to the console).
+      window.scrollTo({ top: _origScrollY, behavior: "auto" });
+    }
+  };
   const terminalEl = document.querySelector(".web-serial-console-card");
   if (terminalEl) {
-    terminalEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // block:"start" (not "nearest") — the console sits well below the flash /
+    // build buttons on the Automation tab, so "nearest" left it at the very
+    // bottom edge, mostly clipped.
+    terminalEl.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   if (!isRunnerOnline) {
@@ -3956,6 +4222,7 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
     navigator.clipboard.writeText(command).then(() => {
       showToast("📋 Command copied! (Start 'python3 server.py' for 1-click execution)");
     });
+    _restoreOrigTab();
     return;
   }
 
@@ -4030,6 +4297,8 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
 
     let buffer = "";
     let adcStreamBuffer = "";
+    let _sseDone = false;   // set on the `event: done` line — the socket may be
+                            // kept alive, so we can't rely on the stream closing
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -4059,7 +4328,10 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
                 if (execPill) {
                   const L = String(textLine);
                   const step = L.match(/Step (\d)\/9/);
+                  const phaseBanner = L.match(/^=== \[\d\/\d\]\s+(.+?)\s+=+\s*$/);
                   if (step) setExecPhase(`step ${step[1]}/9`);
+                  else if (phaseBanner) setExecPhase(phaseBanner[1].replace(/\s*\(.*$/, "").toLowerCase());
+                  else if (/PlatformIO not found|installing build toolchain|get-platformio|Installing PlatformIO Core/.test(L)) setExecPhase("installing build tools");
                   else if (/apt-get|Installing |Reading package lists|Unpacking |Setting up /.test(L)) setExecPhase("installing packages");
                   else if (/Cloning into|Receiving objects|Resolving deltas/.test(L)) setExecPhase("cloning sources");
                   else if (/colcon build|Starting >>>|Finished <<</.test(L)) setExecPhase("building agent workspace");
@@ -4159,6 +4431,8 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
                   appendTerminalLine(`\n❌ [FAILED] Command exited with code ${exitCode}`, "err");
                   showToast(`⚠️ Command exited with code ${exitCode}`);
                 }
+                _sseDone = true;   // stop reading; hop back to the launching tab now
+                _restoreOrigTab();
               } else if (eventType === "error") {
                 appendTerminalLine(`❌ [ERROR] ${payload.error}`, "err");
               }
@@ -4168,6 +4442,7 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
           }
         }
       }
+      if (_sseDone) { try { await reader.cancel(); } catch (_) {} break; }
     }
   } catch (err) {
     if (err.name === "AbortError") {
@@ -4199,6 +4474,8 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
       _ep.style.display = "none";
     }
     currentExecController = null;
+    // Action done — return the user to the tab they launched it from.
+    _restoreOrigTab();
   }
 }
 
@@ -4582,6 +4859,7 @@ function runHardwareAdcCalibration() {
     `    if seen and l.strip().endswith('};'): break`,
     `s.close()`,
     `EOF_ADC_MON`,
+    `~/.platformio/penv/bin/python -c 'import serial' 2>/dev/null || ~/.platformio/penv/bin/python -m pip install -q pyserial 2>/dev/null || true`,
     `~/.platformio/penv/bin/python /tmp/lr_adc_monitor.py`
   ].join("\n");
   const cmd = `${uploadCmd}\necho "--- adc_calibrate flashed; capturing LUT over serial (${port} @ ${baud} baud, up to 6 min) ---"\n${monScript}`;
@@ -4875,26 +5153,28 @@ function selectTopicAndDisplay(topic, mode = "echo") {
 async function measureAllTopicHz() {
   const tbody = document.getElementById("ros2-topic-table-body");
   if (!tbody) return;
-  const rows = tbody.querySelectorAll("tr.topic-row");
-  for (const row of rows) {
+  const rows = [...tbody.querySelectorAll("tr.topic-row")];
+  // 7 s window so a 1 Hz topic (/battery, /pressure, /temperature, …) is
+  // averaged over ~7 samples instead of 2. Run every row in parallel so the
+  // total wait is ~7 s regardless of how many topics there are.
+  await Promise.all(rows.map(async (row) => {
     const topic = row.getAttribute("data-topic");
-    if (!topic || topic.includes("cmd_vel")) continue;
+    if (!topic || topic.includes("cmd_vel")) return;
     const badge = row.querySelector(".topic-hz-badge");
-    if (badge) {
-      badge.textContent = "Measuring...";
-      badge.style.opacity = "0.6";
-    }
+    if (badge) { badge.textContent = "Measuring…"; badge.style.opacity = "0.6"; }
     try {
-      const res = await fetch(`/api/ros2/hz_single?topic=${encodeURIComponent(topic)}`);
+      const res = await fetch(`/api/ros2/hz_single?topic=${encodeURIComponent(topic)}&secs=7`);
       const data = await res.json();
       if (data.status === "ok" && data.hz && badge) {
         badge.textContent = data.hz;
+        badge.style.opacity = "1.0";
+      } else if (badge) {
         badge.style.opacity = "1.0";
       }
     } catch (e) {
       if (badge) badge.style.opacity = "1.0";
     }
-  }
+  }));
 }
 
 function stopRos2Stream() {
@@ -4917,6 +5197,10 @@ function stopRos2Stream() {
 
 function startRos2Stream(topic, mode = "echo") {
   stopRos2Stream();
+
+  // Surface the console so the streamed messages are actually visible (the
+  // topic table / Hz buttons are higher up the same tab).
+  jumpToTerminal();
 
   const screen = document.getElementById("serial-terminal-screen");
   if (screen) {
@@ -5088,6 +5372,21 @@ function handleI2cAutoDetectedSensors(data) {
     batSelect.dispatchEvent(new Event("change"));
   }
 
+  // 4. Auto-configure Environmental barometer (env category — BMP280 / BME280)
+  const envSelect = document.getElementById("cfg-env");
+  if (envSelect) {
+    const envDev = (data.devices || []).find((d) => d.category === "env");
+    if (envDev) {
+      const model = String(envDev.model || "BMP280").toUpperCase();
+      for (let opt of envSelect.options) {
+        if (opt.value.toUpperCase() === model) { envSelect.value = opt.value; break; }
+      }
+      if (envSelect.value === "NONE") envSelect.value = "BMP280";
+      summaryParts.push(`Env: <strong>${envSelect.value}</strong>`);
+      envSelect.dispatchEvent(new Event("change"));
+    }
+  }
+
   // Update UI results box
   if (resultsDiv) {
     resultsDiv.style.display = "block";
@@ -5141,12 +5440,37 @@ function runI2cSensorAutoDetect() {
   // first JSON (or the "no devices" line).
   const monitorPy = "import serial, sys, time; s = serial.Serial('" + port + "', " + baud + ", timeout=2); t = time.time();\nwhile time.time() - t < 20:\n  l = s.readline().decode('utf-8', errors='ignore').strip()\n  if not l: continue\n  print(l); sys.stdout.flush()\n  if '[I2C_JSON]' in l or 'No I2C devices detected' in l: break\ns.close()";
   const rd = document.getElementById("i2c-detect-results");
-  if (rd) rd.innerHTML = `<span style="color:#38bdf8;">⏳ Building & flashing tools/i2c_detect${pinNote}, then scanning the bus… (first build ~30–90 s)</span>`;
+  if (rd) {
+    rd.style.display = "block";
+    rd.innerHTML = `<span style="color:#38bdf8;">⏳ Watch the <strong>Automation &amp; Flash</strong> tab terminal — installs tools (first run only) → builds &amp; flashes <code>tools/i2c_detect</code>${pinNote} → scans the bus. Returns here when done.</span>`;
+  }
   const btn = document.getElementById("btn-auto-detect-i2c");
-  if (btn) { btn.disabled = true; btn.dataset._t = btn.textContent; btn.textContent = "⏳ Scanning…"; setTimeout(() => { btn.disabled = false; if (btn.dataset._t) btn.textContent = btn.dataset._t; }, 150000); }
+  let _btnRestore = null;
+  if (btn) {
+    btn.disabled = true; btn.dataset._t = btn.textContent; btn.textContent = "⏳ Scanning…";
+    _btnRestore = () => { btn.disabled = false; if (btn.dataset._t) btn.textContent = btn.dataset._t; };
+    setTimeout(() => { if (btn.disabled) _btnRestore(); }, 360000);
+  }
+  // (executeCommandInTerminal activates the Automation tab so this streams on-screen.)
   const rwFix = `for _d in /dev/ttyUSB* /dev/ttyACM*; do [ -e "$_d" ] && [ ! -w "$_d" ] && sudo chmod a+rw "$_d" 2>/dev/null || true; done`;
-  const cmd = `${rwFix} && cd tools/i2c_detect && ${pfx}pio run -e ${envName} -t upload${uploadFlag} && ~/.platformio/penv/bin/python -c "${monitorPy}"`;
-  executeCommandInTerminal(cmd, `🔍 AI Auto-Detecting I2C Sensors (${envName}${pinNote} -> ${port})`);
+  // Guarantee the pyserial the mini-monitor below imports (penv python has pip).
+  const ensurePyserial = `~/.platformio/penv/bin/python -c 'import serial' 2>/dev/null || ~/.platformio/penv/bin/python -m pip install -q pyserial 2>/dev/null || python3 -m pip install -q --user pyserial 2>/dev/null || true`;
+  // Explicit phase banners so the streamed terminal output reads as
+  // installing tools -> building/flashing -> scanning.
+  const cmd = [
+    `set -e`,
+    rwFix,
+    `echo; echo "=== [1/3] Build tools (PlatformIO) ================================"`,
+    ensurePioToolchainSnippet(),          // installs PlatformIO on first use (no more exit 127)
+    ensurePyserial,
+    `echo; echo "=== [2/3] Building & flashing i2c_detect firmware (${envName}) ===="`,
+    `cd tools/i2c_detect`,
+    `${pfx}pio run -e ${envName} -t upload${uploadFlag}`,
+    `echo; echo "=== [3/3] Scanning the I2C bus${pinNote} ========================="`,
+    `~/.platformio/penv/bin/python -c "${monitorPy}"`,
+  ].join("\n");
+  const p = executeCommandInTerminal(cmd, `🔍 AI Auto-Detecting I2C Sensors (${envName}${pinNote} -> ${port})`);
+  if (p && typeof p.finally === "function" && _btnRestore) p.finally(_btnRestore);
 }
 
 

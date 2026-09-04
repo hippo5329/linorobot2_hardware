@@ -197,12 +197,43 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
         lines.append(f"#define MAG_BIAS {{ {', '.join(_n(x) for x in mb)} }}")
     # ACCEL/GYRO/ORI/MAG_COV are 3-vectors; POSE/TWIST_COV are 6-vectors — a
     # scalar expands, a list is used as-is. All #ifndef-gated in firmware.
+    # When a known sensor is enabled and the spec left a covariance blank, fall
+    # back to a datasheet-derived default (variance ≈ (noise_density·√100 Hz)²)
+    # so the header ships realistic values instead of the firmware's 1e-5.
+    _imu_key = (sensors.get("imu") or str(sensors.get("imu_type") or "")
+                ).replace("USE_", "").replace("_IMU", "").upper()
+    _mag_key = (sensors.get("mag") or str(sensors.get("mag_type") or "")
+                ).replace("USE_", "").replace("_MAG", "").upper()
+    _env_key = str(sensors.get("env") or sensors.get("env_type") or "").upper()
+    _imu_cov = {
+        "BNO085": {"accel_cov": 2.2e-4, "gyro_cov": 1.5e-6, "ori_cov": 4e-3},
+        "LSM6DSOX": {"accel_cov": 4.7e-5, "gyro_cov": 4.4e-7},
+        "ICM20948": {"accel_cov": 5.1e-4, "gyro_cov": 6.9e-6},
+        "QMI8658": {"accel_cov": 8e-5, "gyro_cov": 2e-6},
+        "MPU9250": {"accel_cov": 9e-4, "gyro_cov": 3e-6},
+        "MPU9150": {"accel_cov": 1.5e-3, "gyro_cov": 3e-6},
+        "MPU6050": {"accel_cov": 1.5e-3, "gyro_cov": 3e-6},
+        "GY85": {"accel_cov": 1.8e-3, "gyro_cov": 4.4e-5},
+    }.get(_imu_key, {})
+    _mag_cov = {"AK09918": 2.3e-14, "ICM20948": 2.3e-14, "QMC5883L": 4e-14,
+                "HMC5883L": 4e-14, "AK8963": 9e-14, "AK8975": 9e-14}.get(_mag_key)
+    # pressure Pa² (σ≈1.7 Pa), temperature °C² (±0.5°C accuracy), humidity (0..1)² (±3% RH)
+    _env_cov = {"BMP280": [3, 0.25, 0], "BME280": [3, 0.25, 9e-4]}.get(_env_key)
+    _cov_defaults = dict(_imu_cov)
+    if _mag_cov is not None:
+        _cov_defaults["mag_cov"] = _mag_cov
+    if _env_cov is not None:
+        _cov_defaults["env_cov"] = _env_cov
+
     for _macro, _key, _len in (
         ("ACCEL_COV", "accel_cov", 3), ("GYRO_COV", "gyro_cov", 3),
         ("ORI_COV", "ori_cov", 3), ("MAG_COV", "mag_cov", 3),
         ("POSE_COV", "pose_cov", 6), ("TWIST_COV", "twist_cov", 6),
+        ("ENV_COV", "env_cov", 3),   # BMP280 pressure/temperature/humidity .variance
     ):
         _v = tune.get(_key)
+        if _v is None or _v == "":
+            _v = _cov_defaults.get(_key)
         if _v is None or _v == "":
             continue
         _t = list(_v) if isinstance(_v, (list, tuple)) else [_v] * _len
@@ -273,6 +304,17 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
     if sonar_trig >= 0 and sonar_echo >= 0:
         lines.append(f"#define TRIG_PIN {sonar_trig}")
         lines.append(f"#define ECHO_PIN {sonar_echo}")
+
+    # Environmental barometer (BMP280 / BME280). BMP280 & BME280 share the
+    # macro; the driver reads the chip id at runtime and only publishes
+    # /humidity for a BME280.
+    env = sensors.get("env") or sensors.get("env_type")
+    if (env and str(env).upper() not in ("NONE", "FAKE")) or sensors.get("use_bmp280"):
+        lines.append("#define USE_BMP280")
+        _bmp_addr = sensors.get("bmp280_addr")
+        if _bmp_addr not in (None, ""):
+            _a = _bmp_addr if isinstance(_bmp_addr, str) else hex(_bmp_addr)
+            lines.append(f"#define BMP280_ADDR {_a}")
 
     # ── Telemetry ─────────────────────────────────────────────────────
     baudrate = telemetry.get("baudrate") or spec.get("baudrate", 921600)
