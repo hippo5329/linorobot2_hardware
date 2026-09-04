@@ -1375,10 +1375,17 @@ function updateDynamicUIState() {
   if (adcCard) adcCard.classList.toggle("is-disabled", !hasDac);
   const noDacNote = document.getElementById("adc-nodac-note");
   if (noDacNote) noDacNote.style.display = hasDac ? "none" : "block";
-  ["btn-adc-run-cal", "btn-adc-sim-cal", "btn-upload-adc"].forEach((id) => {
+  ["btn-adc-run-cal", "btn-adc-sim-cal"].forEach((id) => {
     const b = document.getElementById(id);
     if (b) { b.disabled = !hasDac; b.classList.toggle("is-disabled", !hasDac); }
   });
+  // The "Upload adc_calibrate" 1-click button is hidden outright (like the
+  // Target Firmware Binary option) on MCUs without a hardware DAC.
+  const btnUploadAdc = document.getElementById("btn-upload-adc");
+  if (btnUploadAdc) {
+    btnUploadAdc.style.display = hasDac ? "" : "none";
+    btnUploadAdc.disabled = !hasDac;
+  }
   // Merge button stays disabled until a LUT exists even when a DAC is present.
   const mergeBtn = document.getElementById("btn-adc-merge-lut");
   if (mergeBtn && !hasDac) { mergeBtn.disabled = true; mergeBtn.classList.add("is-disabled"); }
