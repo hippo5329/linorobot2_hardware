@@ -43,9 +43,11 @@
           <label for="cfg-robot-name">🤖 Robot Name:</label>
           <input type="text" id="cfg-robot-name" class="form-input hdr-input" value="scout_pico2" placeholder="e.g. scout_pico2" pattern="^[a-z0-9_]+$" title="Lowercase alphanumeric &amp; underscores only">
         </div>
-        <div class="hdr-field">
+        <div class="hdr-field" id="hdr-branch-field">
           <label for="auto-git-branch">⎇ Branch:</label>
-          <input type="text" id="auto-git-branch" class="form-input hdr-input" data-auto-managed="true" value="scout_pico2" placeholder="current branch" title="Robot SBC git branch. Run Merge &amp; Commit checks it out (creating it if new).">
+          <input type="text" id="auto-git-branch" class="form-input hdr-input" data-auto-managed="true" value="scout_pico2" placeholder="current branch" autocomplete="off" title="Robot SBC git branch. Click to pick an existing branch, or type a new name. Run Merge &amp; Commit checks it out (creating it if new).">
+          <button type="button" id="btn-branch-menu" class="hdr-caret" aria-expanded="false" aria-haspopup="listbox" title="Show branches on the Robot SBC">▾</button>
+          <div id="branch-menu" class="branch-menu" role="listbox" hidden></div>
           <button type="button" id="btn-branch-to-name" class="hdr-btn" title="Set the branch to the robot name and switch to it">= name</button>
         </div>
         <div class="git-version-row">

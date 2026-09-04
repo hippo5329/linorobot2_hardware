@@ -95,10 +95,21 @@ def collect_git_info():
                 "hash": f[0], "subject": f[1], "author": f[2],
                 "date": f[3], "reldate": f[4],
             })
+    cur_branch = _git("rev-parse", "--abbrev-ref", "HEAD") or "(detached)"
+    # Local branches, most-recently-committed first, current branch pinned to the top.
+    branches = [
+        b for b in _git(
+            "for-each-ref", "--sort=-committerdate",
+            "--format=%(refname:short)", "refs/heads"
+        ).splitlines() if b
+    ]
+    if cur_branch in branches:
+        branches = [cur_branch] + [b for b in branches if b != cur_branch]
     return {
         "version": (_git("rev-parse", "--short=7", "HEAD") or "unknown")[:7],
         "full": _git("rev-parse", "HEAD"),
-        "branch": _git("rev-parse", "--abbrev-ref", "HEAD") or "(detached)",
+        "branch": cur_branch,
+        "branches": branches,
         "dirty": bool(_git("status", "--porcelain")),
         "remotes": remotes,
         "commits": commits,

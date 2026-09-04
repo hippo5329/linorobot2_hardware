@@ -408,6 +408,7 @@ document.addEventListener("DOMContentLoaded", () => {
   detectClientOS();
   checkServerRunnerStatus();
   initGitVersionBadge();
+  initBranchPicker();
   handleUrlParams();
 });
 
@@ -420,6 +421,91 @@ function applyCurrentBranch(branch) {
   if (el.dataset.autoManaged === "false") return;
   el.value = branch;
   el.dataset.autoManaged = "true";
+}
+
+// =============================================================================
+// Header Branch Picker — clicking the "Branch:" field (or its ▾) drops a list
+// of the Robot SBC's local git branches (GET /api/gitinfo → branches[]).
+// Picking one fills the field; typing a new name still creates it on Merge/Commit.
+// =============================================================================
+function initBranchPicker() {
+  const input = document.getElementById("auto-git-branch");
+  const caret = document.getElementById("btn-branch-menu");
+  const menu = document.getElementById("branch-menu");
+  if (!input || !menu) return;
+
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+
+  const close = () => {
+    menu.hidden = true;
+    if (caret) caret.setAttribute("aria-expanded", "false");
+  };
+
+  const pick = (name) => {
+    input.value = name;
+    input.dataset.autoManaged = "false";   // user chose it — stop mirroring HEAD
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    close();
+    input.focus();
+  };
+
+  const render = (info) => {
+    const branches = (info && Array.isArray(info.branches)) ? info.branches : [];
+    const cur = info && info.branch;
+    const typed = input.value.trim();
+    if (!branches.length) {
+      menu.innerHTML = `<div class="branch-empty">No branches reported by the Robot SBC.</div>`;
+      return;
+    }
+    menu.innerHTML = branches.map((b) => `
+      <button type="button" role="option" class="branch-item${b === cur ? " is-current" : ""}${b === typed ? " is-active" : ""}" data-branch="${esc(b)}">
+        <span class="branch-cur-dot"></span><span>${esc(b)}</span>${b === cur ? '<span style="margin-left:auto;font-size:0.68rem;color:var(--text-muted)">current</span>' : ""}
+      </button>`).join("");
+    menu.querySelectorAll(".branch-item").forEach((btn) => {
+      btn.addEventListener("click", () => pick(btn.dataset.branch));
+    });
+  };
+
+  const open = async () => {
+    menu.hidden = false;
+    if (caret) caret.setAttribute("aria-expanded", "true");
+    menu.innerHTML = `<div class="branch-empty">Loading branches…</div>`;
+    let info = null;
+    try {
+      const res = await fetch("/api/gitinfo", { cache: "no-cache" });
+      if (res.ok) info = await res.json();
+    } catch (_) { /* offline: fall through to empty */ }
+    render(info);
+  };
+
+  const toggle = (e) => {
+    if (e) e.stopPropagation();
+    if (menu.hidden) open(); else close();
+  };
+
+  input.addEventListener("click", (e) => { e.stopPropagation(); if (menu.hidden) open(); });
+  input.addEventListener("keydown", (e) => {
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && menu.hidden) { e.preventDefault(); open(); }
+  });
+  if (caret) caret.addEventListener("click", toggle);
+  // Re-filter the visible list as the user types a name.
+  input.addEventListener("input", () => {
+    if (menu.hidden) return;
+    menu.querySelectorAll(".branch-item").forEach((btn) => {
+      const hit = btn.dataset.branch.toLowerCase().includes(input.value.trim().toLowerCase());
+      btn.style.display = hit ? "" : "none";
+      btn.classList.toggle("is-active", btn.dataset.branch === input.value.trim());
+    });
+  });
+  document.addEventListener("click", (e) => {
+    if (!menu.hidden && !menu.contains(e.target) && e.target !== input && e.target !== caret) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) { close(); input.blur(); }
+  });
 }
 
 // =============================================================================
