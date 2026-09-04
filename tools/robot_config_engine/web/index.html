@@ -1008,6 +1008,7 @@
             <!-- 4. Merge Generated Headers & Git Commit -->
             <h3 class="sub-title mt-4">🔀 4. Merge Generated Headers & Git Commit Automation</h3>
             <p class="input-hint" style="margin-bottom:0.5rem;">Runs on the <strong>Branch</strong> set in the header (top-right) — <strong>Run Merge &amp; Commit</strong> checks that branch out first, creating it if it doesn't exist.</p>
+            <p class="input-hint" style="margin-bottom:0.5rem;">🔀 <strong>Merges, never overwrites:</strong> if <code>config/custom/&lt;robot&gt;_config.h</code> already exists on the Robot SBC, the settings you've changed here win field-for-field — everything else already in that file (hand-added <code>#define</code>s, a previously calibrated ADC LUT, …) is kept. This same merge runs automatically before every direct upload (<code>test_sensors</code>, <code>adc_calibrate</code>, …) and Full Deploy, not just this button.</p>
             <div class="form-grid">
               <div class="form-group">
                 <label for="auto-git-commit-msg" class="form-label">Git Commit Message</label>
@@ -1118,17 +1119,12 @@
                   </div>
                 </div>
                 <div class="adc-studio-actions">
-                  <button type="button" id="btn-adc-run-cal" class="btn btn-sm btn-primary" title="Upload adc_calibrate & Run Live Sweep on Robot SBC">
+                  <button type="button" id="btn-adc-run-cal" class="btn btn-sm btn-primary" title="Upload adc_calibrate, sweep, capture the LUT, merge it into the robot config, and commit it — one click">
                     <span>⚡ Run Hardware Calibration</span>
-                  </button>
-                  <button type="button" id="btn-adc-sim-cal" class="btn btn-sm btn-secondary" title="Compute Theoretical/Empirical ESP32 ADC Linearization Model">
-                    <span>🧪 Generate Model LUT</span>
-                  </button>
-                  <button type="button" id="btn-adc-merge-lut" class="btn btn-sm btn-success" title="Merge generated ADC_LUT into custom robot configuration" disabled>
-                    <span>🔀 Merge LUT Table</span>
                   </button>
                 </div>
               </div>
+              <p class="input-hint mb-2">Sweeps the DAC, captures a real 4096-point LUT, charts it, merges it into <code>config/custom/&lt;robot&gt;_config.h</code> and commits — all in this one action. If that file already exists it's <strong>merged</strong>, not overwritten: settings you haven't touched here (hand-added <code>#define</code>s, a previous calibration) are kept.</p>
 
               <!-- DAC pin selector + no-DAC notice -->
               <div class="adc-dacpin-row" id="adc-dacpin-row">

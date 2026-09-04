@@ -28,6 +28,23 @@ def _n(v) -> str:
     return repr(f).rstrip("0").rstrip(".")
 
 
+def _format_adc_lut(lut) -> str:
+    """`const int16_t ADC_LUT[4096] = { ... };`, 16 values/row — matches the
+    web UI's formatAdcLutArray() so a browser-generated and a server-generated
+    header are byte-identical."""
+    vals = [int(round(float(x))) for x in (lut or [])]
+    if not vals:
+        return "const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };"
+    rows = []
+    for i in range(0, len(vals), 16):
+        chunk = vals[i:i + 16]
+        row = "    " + ", ".join(str(v) for v in chunk)
+        if i + 16 < len(vals):
+            row += ","
+        rows.append(row)
+    return "const int16_t ADC_LUT[4096] = {\n" + "\n".join(rows) + "\n};"
+
+
 def _ipv4_c(ip: str) -> str:
     parts = [p.strip() for p in str(ip).split(".")]
     if len(parts) == 4 and all(p.isdigit() for p in parts):
@@ -288,10 +305,17 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
             r2 = sensors.get("battery_r2", sensors.get("battery_divider_r2", 7500.0))
             # firmware/lib/battery/battery.cpp: `return BATTERY_ADJUST(reading);`
             # (no #ifndef fallback) — an ADC battery config MUST define it.
+            adc_lut = sensors.get("adc_lut")
             if not any(d.get("name") == "BATTERY_ADJUST" for d in spec.get("raw_defines", [])):
                 # express the divider as kΩ the way the hand-written headers do
                 r1k, r2k = _n(float(r1) / 1000.0), _n(float(r2) / 1000.0)
-                if "PICO" in mcu_name or "RP2" in mcu_name:
+                if adc_lut:
+                    # adc_calibrate-derived 12-bit lookup table linearizes the raw
+                    # reading before the divider math is applied.
+                    lines.append("#define USE_ADC_LUT")
+                    lines.append(_format_adc_lut(adc_lut))
+                    lines.append(f"#define BATTERY_ADJUST(v) (ADC_LUT[v] * (3.3 / 4096 * ({r1k} + {r2k}) / {r2k}))")
+                elif "PICO" in mcu_name or "RP2" in mcu_name:
                     lines.append(f"#define BATTERY_ADJUST(v) ((v) * (3.3 / 4096 * ({r1k} + {r2k}) / {r2k}))")
                 else:  # ESP32 family: analogReadMilliVolts() returns millivolts
                     lines.append(f"#define BATTERY_ADJUST(v) ((v) * (({r1k} + {r2k}) / {r2k}) / 1000.0)")

@@ -300,6 +300,86 @@ class TestRobotConfigEngine(unittest.TestCase):
         he = generate_config_header(esp)
         self.assertIn("#define DAC_PIN 25", he)
 
+    def test_adc_lut_roundtrip_and_merge_preserves_it(self):
+        # A previously-calibrated header with a short LUT (real ones are
+        # always 4096 entries; a short one exercises the same regex/format).
+        raw = """
+#ifndef LUTBOT_CONFIG_H
+#define LUTBOT_CONFIG_H
+#define LINO_BASE DIFFERENTIAL_DRIVE
+#define BATTERY_PIN 33
+#define DAC_PIN 25
+#define USE_ADC_LUT
+const int16_t ADC_LUT[4096] = {
+    0, 50, 53, 57, 60, 64, 65, 66,
+    3959, 3967
+};
+#define BAUDRATE 921600
+#endif
+"""
+        spec = parse_header_to_spec(raw)
+        self.assertEqual(spec["sensors"].get("adc_lut"),
+                          [0, 50, 53, 57, 60, 64, 65, 66, 3959, 3967])
+
+        spec["mcu"] = "ESP32"
+        h = generate_config_header(spec)
+        self.assertIn("#define USE_ADC_LUT", h)
+        self.assertIn("const int16_t ADC_LUT[4096] = {", h)
+        self.assertIn("ADC_LUT[v]", h)   # LUT-linearized BATTERY_ADJUST
+        self.assertEqual(h.count("#define USE_ADC_LUT"), 1)
+
+        # merge_configurations: an overlay that doesn't touch sensors.adc_lut
+        # must NOT drop the calibrated LUT already on disk.
+        overlay_no_lut = {"sensors": {"battery_min_voltage": 9.5}}
+        merged, _ = merge_configurations(spec, overlay_no_lut)
+        self.assertEqual(merged["sensors"]["adc_lut"], spec["sensors"]["adc_lut"])
+        self.assertEqual(merged["sensors"]["battery_min_voltage"], 9.5)
+
+        # An overlay that DOES set a new LUT (e.g. a fresh calibration run)
+        # replaces the old one — overlay wins, per merge_configurations.
+        overlay_new_lut = {"sensors": {"adc_lut": [1, 2, 3]}}
+        merged3, changes = merge_configurations(spec, overlay_new_lut)
+        self.assertEqual(merged3["sensors"]["adc_lut"], [1, 2, 3])
+        self.assertTrue(any(c["field"] == "sensors.adc_lut" for c in changes))
+
+    def test_merge_overlay_wins_over_parsed_battery_fields(self):
+        # Regression: parser.py used to store BATTERY_MIN/MAX/CAP and the
+        # divider resistors under different key names than the web-UI form
+        # overlay uses (battery_min vs. battery_min_voltage, etc). Because
+        # merge_configurations() does a deep key-merge, that mismatch meant
+        # an overlay's new value landed under its own key while the OLD
+        # value stayed live under the base's key — and generator.py's
+        # fallback chain checked the stale key first, so the overlay's
+        # change was silently dropped. This locks in that the same key is
+        # used both ways, so a merge genuinely overwrites.
+        raw = """
+#ifndef VOLTBOT_CONFIG_H
+#define VOLTBOT_CONFIG_H
+#define LINO_BASE DIFFERENTIAL_DRIVE
+#define BATTERY_PIN 33
+#define BATTERY_MIN 9
+#define BAUDRATE 921600
+#endif
+"""
+        base = parse_header_to_spec(raw)
+        self.assertEqual(base["sensors"]["battery_min_voltage"], 9.0)
+        self.assertEqual(base["sensors"]["battery_r1"], 30000.0)
+        self.assertEqual(base["sensors"]["battery_r2"], 7500.0)
+
+        # Overlay changes the min-cutoff voltage (form field name) — must win.
+        overlay = {"sensors": {"battery_min_voltage": 7.5}}
+        merged, changes = merge_configurations(base, overlay)
+        self.assertEqual(merged["sensors"]["battery_min_voltage"], 7.5)
+        self.assertFalse("battery_min" in merged["sensors"])  # no stale duplicate key
+
+        base["mcu"] = "ESP32"
+        merged["mcu"] = "ESP32"
+        h_before = generate_config_header(base)
+        h_after = generate_config_header(merged)
+        self.assertIn("#define BATTERY_MIN 9", h_before)
+        self.assertIn("#define BATTERY_MIN 7.5", h_after)
+        self.assertNotIn("#define BATTERY_MIN 9", h_after)
+
     def test_user_modify_and_merge_workflow(self):
         # 1. User starts with an existing header (Fake IMU/Mag)
         raw_header = """

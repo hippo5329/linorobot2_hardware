@@ -1384,10 +1384,8 @@ function updateDynamicUIState() {
   if (adcCard) adcCard.classList.toggle("is-disabled", !hasDac);
   const noDacNote = document.getElementById("adc-nodac-note");
   if (noDacNote) noDacNote.style.display = hasDac ? "none" : "block";
-  ["btn-adc-run-cal", "btn-adc-sim-cal"].forEach((id) => {
-    const b = document.getElementById(id);
-    if (b) { b.disabled = !hasDac; b.classList.toggle("is-disabled", !hasDac); }
-  });
+  const btnRunCal = document.getElementById("btn-adc-run-cal");
+  if (btnRunCal) { btnRunCal.disabled = !hasDac; btnRunCal.classList.toggle("is-disabled", !hasDac); }
   // The "Upload adc_calibrate" 1-click button is hidden outright (like the
   // Target Firmware Binary option) on MCUs without a hardware DAC.
   const btnUploadAdc = document.getElementById("btn-upload-adc");
@@ -1395,9 +1393,6 @@ function updateDynamicUIState() {
     btnUploadAdc.style.display = hasDac ? "" : "none";
     btnUploadAdc.disabled = !hasDac;
   }
-  // Merge button stays disabled until a LUT exists even when a DAC is present.
-  const mergeBtn = document.getElementById("btn-adc-merge-lut");
-  if (mergeBtn && !hasDac) { mergeBtn.disabled = true; mergeBtn.classList.add("is-disabled"); }
   const adcTargetOpt = document.querySelector('#auto-flash-target option[value="adc_calibrate"]');
   if (adcTargetOpt) {
     // Hide the adc_calibrate target entirely on MCUs without a hardware DAC.
@@ -3107,12 +3102,54 @@ function getRos2InstallCmd(opts) {
 }
 
 // Generate Merge & Commit Commands
+// Search-and-merge, never overwrite: every place that writes
+// config/custom/<name>_config.h ships the current spec as JSON and has the
+// Robot SBC merge it — via the SAME parser.py/generator.py the test suite is
+// built on — into whatever is already on disk (overlay/web-UI values win for
+// anything they model; hand-edited or not-yet-modeled #defines on disk, and
+// e.g. a previously calibrated ADC_LUT the current form doesn't carry, are
+// left alone). A brand-new robot name just gets the fresh header — there is
+// nothing to merge with yet.
+function getConfigSyncScript(spec, name) {
+  const specJson = JSON.stringify(spec);
+  return [
+    `mkdir -p config/custom urdf`,
+    `cat << 'EOF_SPEC' > "/tmp/lr_spec_${name}.json"`,
+    specJson,
+    `EOF_SPEC`,
+    `LR_ROBOT_NAME="${name}" LR_SPEC_JSON="/tmp/lr_spec_${name}.json" python3 << 'EOF_MERGE_PY'`,
+    `import sys, json, os`,
+    `sys.path.insert(0, "tools/robot_config_engine")`,
+    `from parser import parse_header_to_spec, merge_configurations`,
+    `from generator import generate_config_header`,
+    `name = os.environ["LR_ROBOT_NAME"]`,
+    `path = f"config/custom/{name}_config.h"`,
+    `with open(os.environ["LR_SPEC_JSON"]) as f:`,
+    `    overlay = json.load(f)`,
+    `if os.path.exists(path):`,
+    `    with open(path) as f:`,
+    `        base = parse_header_to_spec(f.read())`,
+    `    merged, changes = merge_configurations(base, overlay)`,
+    `    if changes:`,
+    `        print(f"[config-sync] merged {len(changes)} field(s) into existing {path}")`,
+    `    else:`,
+    `        print(f"[config-sync] {path} already matches — no changes")`,
+    `else:`,
+    `    merged = overlay`,
+    `    print(f"[config-sync] creating new {path}")`,
+    `header = generate_config_header(merged)`,
+    `with open(path, "w") as f:`,
+    `    f.write(header)`,
+    `EOF_MERGE_PY`,
+    `rm -f "/tmp/lr_spec_${name}.json"`,
+  ];
+}
+
 function getMergeAndCommitCmd(spec, opts) {
   const name = spec.robot_name || "my_robot";
   const nameUpper = name.toUpperCase();
   const branch = (opts.gitBranch || "").trim();
   const commitMsg = opts.gitCommitMsg || `feat(config): add configuration for ${name}`;
-  const headerContent = generateCppHeader(spec);
   const pioSection = generatePlatformioEnv(spec);
   const urdfContent = generateUrdfXacro(spec);
 
@@ -3125,11 +3162,8 @@ function getMergeAndCommitCmd(spec, opts) {
       `fi`,
       ``,
     ] : []),
-    `# 2. Ingest Custom Header`,
-    `mkdir -p config/custom urdf`,
-    `cat << 'EOF_HEADER' > "config/custom/${name}_config.h"`,
-    `${headerContent}`,
-    `EOF_HEADER`,
+    `# 2. Ingest Custom Header (search-and-merge with any existing file)`,
+    ...getConfigSyncScript(spec, name),
     ``,
     `# Register in config/config.h`,
     `if [ -f "config/config.h" ]; then`,
@@ -3174,7 +3208,6 @@ function generateDeployScript(spec, opts) {
   const target = opts.flashTarget || "firmware";
   const port = opts.flashPort || "/dev/ttyACM0";
   const otaAuth = (opts.otaFlash && opts.otaPass) ? ` --upload-flags "--auth=${opts.otaPass}"` : "";
-  const headerContent = generateCppHeader(spec);
   const wifiConfigContent = generateWifiConfig(spec);
   const pioSection = generatePlatformioEnv(spec);
   const urdfContent = generateUrdfXacro(spec);
@@ -3417,13 +3450,9 @@ ${`if git rev-parse --is-inside-work-tree &>/dev/null; then info "Working on Git
 # -----------------------------------------------------------------------------
 # Phase 4: Ingest Custom C++ Header
 # -----------------------------------------------------------------------------
-${opts.mergeHeader ? `info "Step 4: Merging C++ configuration header into config/custom/${name}_config.h..."
-mkdir -p config/custom
-
-cat << 'EOF_HEADER' > "config/custom/${name}_config.h"
-${headerContent}
-EOF_HEADER
-success "Generated config/custom/${name}_config.h"
+${opts.mergeHeader ? `info "Step 4: Merging C++ configuration header into config/custom/${name}_config.h (search-and-merge with any existing file)..."
+${getConfigSyncScript(spec, name).join("\n")}
+success "Synced config/custom/${name}_config.h"
 ${wifiConfigContent ? `
 # WiFi credentials go to the git-ignored config/custom/wifi_config.h, never
 # into the tracked robot header. An existing file is left untouched.
@@ -3851,7 +3880,6 @@ function getDirectUploadOrBuildCmd(target, isUpload = true) {
   const otaPass = (document.getElementById("cfg-ota-password")?.value || "").trim();
   const port = (otaOn && otaIp) ? otaIp
              : (document.getElementById("auto-flash-port")?.value.trim() || (isESP32(spec.mcu) ? "/dev/ttyUSB0" : "/dev/ttyACM0"));
-  const headerContent = generateCppHeader(spec);
   const wifiConfigContent = generateWifiConfig(spec);
   const pioSection = generatePlatformioEnv(spec);
   const urdfContent = generateUrdfXacro(spec);
@@ -3874,11 +3902,8 @@ function getDirectUploadOrBuildCmd(target, isUpload = true) {
     `if [ -f "/opt/ros/${rosDistro}/setup.bash" ]; then source "/opt/ros/${rosDistro}/setup.bash"; fi`,
     `if [ -f "$HOME/uros_ws/install/setup.bash" ]; then source "$HOME/uros_ws/install/setup.bash"; fi`,
     ``,
-    `# 1. Ensure custom robot headers and urdf are synced`,
-    `mkdir -p config/custom urdf`,
-    `cat << 'EOF_HEADER' > "config/custom/${name}_config.h"`,
-    `${headerContent}`,
-    `EOF_HEADER`,
+    `# 1. Ensure custom robot headers and urdf are synced (search-and-merge with any existing file)`,
+    ...getConfigSyncScript(spec, name),
     ...(wifiConfigContent ? [
       `if [ ! -f "config/custom/wifi_config.h" ]; then`,
       `    cat << 'EOF_WIFI_CFG' > "config/custom/wifi_config.h"   # git-ignored, holds WiFi credentials`,
@@ -3909,11 +3934,25 @@ function getDirectUploadOrBuildCmd(target, isUpload = true) {
     `${urdfContent}`,
     `EOF_URDF`,
     ``,
-    `# 5. Compile & Upload via PlatformIO`
+    // "Step 4" (the Merge & Commit section) is folded in here so it always
+    // runs before a build/upload/calibration, not just when the user
+    // remembers to click "Run Merge & Commit" separately. Respects the same
+    // "Stage changes and create Git commit automatically" checkbox.
+    ...(opts.autoCommit ? [
+      `# 5. Stage & commit the synced configuration (Step 4's auto-commit)`,
+      `git add config/ firmware/platformio.ini urdf/ 2>/dev/null || true`,
+      `if ! git diff --cached --quiet 2>/dev/null; then`,
+      `    git commit -m "${(opts.gitCommitMsg || `feat(config): add configuration for ${name}`).replace(/"/g, '\\"')}"`,
+      `else`,
+      `    echo "Configuration files already up to date on branch $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')."`,
+      `fi`,
+      ``,
+    ] : []),
+    `# 6. Compile & Upload via PlatformIO`
   ];
 
   if (isUpload) {
-    lines.push(`# 5. Stop serial micro-ROS agent & monitors to release shared USB port (WiFi agent kept running)`);
+    lines.push(`# 7. Stop serial micro-ROS agent & monitors to release shared USB port (WiFi agent kept running)`);
     lines.push(`echo "Releasing USB port '${port}' (stopping serial micro-ROS agent and serial monitors)..."`);
     // NOTE the "[m]" / "[s]" first-character classes: this whole script is passed
     // to `bash -c` as one argument, so a plain `pkill -f "micro_ros_agent.*serial"`
@@ -3930,7 +3969,7 @@ function getDirectUploadOrBuildCmd(target, isUpload = true) {
     }
     lines.push(`sleep 0.8`);
     lines.push(``);
-    lines.push(`# 6. Flash Firmware onto Microcontroller`);
+    lines.push(`# 8. Flash Firmware onto Microcontroller`);
     if (port === "AUTO" || port === "BOOTSEL") {
       lines.push(`pio run -d ${targetDir} -e ${buildEnv} -t upload`);
     } else if (otaOn && otaIp) {
@@ -4467,6 +4506,8 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
 
     let buffer = "";
     let adcStreamBuffer = "";
+    let _adcLutFreshlyCaptured = false;   // set once THIS run's sweep lands a LUT
+    let _adcLutCommitPending = false;     // set in the "done" handler below
     let _sseDone = false;   // set on the `event: done` line — the socket may be
                             // kept alive, so we can't rely on the stream closing
     while (true) {
@@ -4572,14 +4613,17 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
                         renderAdcChart(currentRawAdcCurve || currentAdcLut, currentAdcLut, null);
                         const codeDisplay = document.getElementById("adc-lut-code-display");
                         if (codeDisplay) codeDisplay.innerText = formatAdcLutArray(currentAdcLut);
-                        const btnMerge = document.getElementById("btn-adc-merge-lut");
-                        if (btnMerge) btnMerge.disabled = false;
+                        // "Run Hardware Calibration" is the whole pipeline now:
+                        // sweep -> capture -> chart -> merge into the live spec.
+                        // No separate "Merge LUT Table" click needed.
+                        mergeAdcLutIntoConfig();
+                        _adcLutFreshlyCaptured = true;
                         const statusText = document.getElementById("adc-status-text");
                         if (statusText) {
-                          statusText.innerText = "🎉 Hardware ADC Calibration Complete! 4096 points captured.";
+                          statusText.innerText = "🎉 Hardware ADC Calibration Complete! 4096 points captured & merged.";
                           statusText.style.color = "var(--success)";
                         }
-                        showToast("🎉 Hardware ADC Calibration Complete! LUT captured.");
+                        showToast("🎉 Hardware ADC Calibration Complete! LUT captured & merged.");
                       }
                     }
                   } catch (e) {
@@ -4597,6 +4641,13 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
                 if (exitCode === 0) {
                   appendTerminalLine(`\n✅ [SUCCESS] Command finished with exit code 0!`, "out");
                   showToast("✅ Command executed successfully!");
+                  // The header written at the START of this run predates the
+                  // LUT (the sweep hadn't run yet), so it's still on disk
+                  // without it. Now that the port is free again, write it for
+                  // real — search-and-merge like every other config write —
+                  // and commit it, so the calibration is durably saved without
+                  // a second manual click.
+                  if (_isAdcCal && _adcLutFreshlyCaptured) _adcLutCommitPending = true;
                 } else {
                   appendTerminalLine(`\n❌ [FAILED] Command exited with code ${exitCode}`, "err");
                   showToast(`⚠️ Command exited with code ${exitCode}`);
@@ -4646,6 +4697,16 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
     currentExecController = null;
     // Action done — return the user to the tab they launched it from.
     _restoreOrigTab();
+    // Fire the deferred LUT sync+commit now that the port/exec slot is free
+    // (never from inside the SSE handling above — that would race the
+    // server's single-flight /api/exec against this very command).
+    if (_adcLutCommitPending) {
+      const _name = currentSpec.robot_name || "robot";
+      executeCommandInTerminal(
+        getMergeAndCommitCmd(currentSpec, readAutomationOptions()),
+        `🔀 Auto-merging & committing calibrated ADC_LUT for '${_name}'`
+      );
+    }
   }
 }
 
@@ -4683,30 +4744,21 @@ function initAdcCalibrationStudio() {
   const canvas = document.getElementById("adc-chart-canvas");
   const tooltip = document.getElementById("adc-chart-tooltip");
   const btnRun = document.getElementById("btn-adc-run-cal");
-  const btnSim = document.getElementById("btn-adc-sim-cal");
-  const btnMerge = document.getElementById("btn-adc-merge-lut");
   const btnCopy = document.getElementById("btn-copy-lut-code");
 
   if (!canvas) return;
 
-  // Initialize with Theoretical / Empirical ESP32 Model
+  // Theoretical/empirical placeholder curve so the chart isn't blank before
+  // the first hardware run. "Run Hardware Calibration" is now the only
+  // action in the studio — it sweeps, captures, charts, merges into the
+  // live spec, and syncs + commits the result to disk in one click; there
+  // used to be separate "Generate Model LUT" and "Merge LUT Table" buttons
+  // for those steps.
   generateAdcModelLut(false);
-
-  if (btnSim) {
-    btnSim.addEventListener("click", () => {
-      generateAdcModelLut(true);
-    });
-  }
 
   if (btnRun) {
     btnRun.addEventListener("click", () => {
       runHardwareAdcCalibration();
-    });
-  }
-
-  if (btnMerge) {
-    btnMerge.addEventListener("click", () => {
-      mergeAdcLutIntoConfig();
     });
   }
 
@@ -4848,13 +4900,10 @@ function generateAdcModelLut(showToastMsg = true) {
     codeDisplay.innerText = formatAdcLutArray(currentAdcLut);
   }
 
-  const btnMerge = document.getElementById("btn-adc-merge-lut");
-  if (btnMerge) btnMerge.disabled = false;
-
   const statusText = document.getElementById("adc-status-text");
   if (statusText) {
-    statusText.innerText = "Model LUT generated. Ready to merge into robot configuration.";
-    statusText.style.color = "var(--success)";
+    statusText.innerText = "Placeholder model curve — click Run Hardware Calibration for a real, merged LUT.";
+    statusText.style.color = "var(--text-muted)";
   }
 
   if (showToastMsg) {
@@ -5064,11 +5113,11 @@ function mergeAdcLutIntoConfig() {
   renderActiveCode();
 
   const name = currentSpec.robot_name || "robot";
-  showToast(`✅ ADC LUT successfully merged into '${name}_config.h'!`);
+  showToast(`✅ ADC LUT merged into the '${name}' configuration — writing it to config/custom/${name}_config.h next.`);
 
   const statusText = document.getElementById("adc-status-text");
   if (statusText) {
-    statusText.innerText = `✅ ADC_LUT successfully merged into config/custom/${name}_config.h`;
+    statusText.innerText = `✅ ADC_LUT merged into the live spec — syncing to config/custom/${name}_config.h...`;
     statusText.style.color = "var(--success)";
   }
 }

@@ -121,12 +121,21 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
             "imu_type": "USE_FAKE_IMU",
             "mag_type": "USE_FAKE_MAG",
             "battery_pin": -1,
-            "battery_divider_r1": 10000,
-            "battery_divider_r2": 1000,
+            # Same key names generator.py's web-UI/overlay spec shape uses
+            # (battery_r1/r2, battery_*_voltage, battery_capacity) — a base
+            # spec parsed from disk and an overlay from the form MUST agree
+            # on field names, or merge_configurations()'s deep-merge creates
+            # a second, differently-named copy instead of overwriting the
+            # one that's actually read, and the overlay's value is silently
+            # ignored. Defaults match generator.py's own fallbacks so an
+            # untouched field behaves the same whether the spec came from a
+            # freshly parsed header or a fresh form.
+            "battery_r1": 30000.0,
+            "battery_r2": 7500.0,
             "battery_dip": None,
-            "battery_min": None,
-            "battery_max": None,
-            "battery_cap": None,
+            "battery_min_voltage": None,
+            "battery_max_voltage": None,
+            "battery_capacity": None,
             "use_ina219": False,
             "sonar_trig": -1,
             "sonar_echo": -1,
@@ -292,6 +301,14 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     dacp = re.search(r'^[ \t]*#define\s+DAC_PIN\s+(\d+)', content, re.MULTILINE)
     if dacp:
         spec["sensors"]["dac_pin"] = int(dacp.group(1))
+    # adc_calibrate-derived 12-bit lookup table (not a #define — a plain const
+    # array — so it needs its own round-trip; otherwise a parse->merge->
+    # regenerate cycle would silently drop a previously calibrated LUT).
+    lut_m = re.search(r'const\s+int16_t\s+ADC_LUT\s*\[\s*4096\s*\]\s*=\s*\{(.*?)\}\s*;', content, re.DOTALL)
+    if lut_m:
+        lut_vals = [int(v) for v in re.findall(r'-?\d+', lut_m.group(1))]
+        if lut_vals:
+            spec["sensors"]["adc_lut"] = lut_vals
     if _define_bool(content, "USE_INA219"):
         spec["sensors"]["use_ina219"] = True
 
@@ -303,8 +320,8 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
         if _ba:
             spec["sensors"]["bmp280_addr"] = _ba.group(1)
 
-    for _bk, _bm in [("battery_dip", "BATTERY_DIP"), ("battery_min", "BATTERY_MIN"),
-                     ("battery_max", "BATTERY_MAX"), ("battery_cap", "BATTERY_CAP")]:
+    for _bk, _bm in [("battery_dip", "BATTERY_DIP"), ("battery_min_voltage", "BATTERY_MIN"),
+                     ("battery_max_voltage", "BATTERY_MAX"), ("battery_capacity", "BATTERY_CAP")]:
         _bmm = re.search(rf'^[ \t]*#define\s+{_bm}\s+([\d.]+)', content, re.MULTILINE)
         if _bmm:
             spec["sensors"][_bk] = float(_bmm.group(1))
@@ -556,7 +573,8 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     # verbatim passthrough or they would double-emit / ignore a UI clear.
     modeled = {"K_P", "K_I", "K_D", "MAG_BIAS", "ACCEL_COV", "GYRO_COV",
                "ORI_COV", "MAG_COV", "POSE_COV", "TWIST_COV", "ENV_COV",
-               "TOPIC_PREFIX", "USE_BMP280", "BMP280_ADDR", "DAC_PIN"}
+               "TOPIC_PREFIX", "USE_BMP280", "BMP280_ADDR", "DAC_PIN",
+               "USE_ADC_LUT", "ADC_LUT"}
     src_lines = content.split("\n")
     raw_defines: List[Dict[str, str]] = []
     stack: List[str] = []
