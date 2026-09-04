@@ -306,16 +306,23 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
             # firmware/lib/battery/battery.cpp: `return BATTERY_ADJUST(reading);`
             # (no #ifndef fallback) — an ADC battery config MUST define it.
             adc_lut = sensors.get("adc_lut")
-            if not any(d.get("name") == "BATTERY_ADJUST" for d in spec.get("raw_defines", [])):
-                # express the divider as kΩ the way the hand-written headers do
-                r1k, r2k = _n(float(r1) / 1000.0), _n(float(r2) / 1000.0)
-                if adc_lut:
-                    # adc_calibrate-derived 12-bit lookup table linearizes the raw
-                    # reading before the divider math is applied.
-                    lines.append("#define USE_ADC_LUT")
-                    lines.append(_format_adc_lut(adc_lut))
-                    lines.append(f"#define BATTERY_ADJUST(v) (ADC_LUT[v] * (3.3 / 4096 * ({r1k} + {r2k}) / {r2k}))")
-                elif "PICO" in mcu_name or "RP2" in mcu_name:
+            r1k, r2k = _n(float(r1) / 1000.0), _n(float(r2) / 1000.0)
+            if adc_lut:
+                # A real calibration (adc_lut present) is always fresh, explicit
+                # user intent — "I just ran Run Hardware Calibration" — so it
+                # wins unconditionally, even over a BATTERY_ADJUST this same
+                # generator wrote into an earlier version of this file (which
+                # a re-parse can't tell apart from a hand customization, so it
+                # would otherwise sit in raw_defines and block a rewrite here
+                # forever). The line below still ends up in `emitted` further
+                # down, so the stale raw_defines copy is skipped, not doubled.
+                lines.append("#define USE_ADC_LUT")
+                lines.append(_format_adc_lut(adc_lut))
+                lines.append(f"#define BATTERY_ADJUST(v) (ADC_LUT[v] * (3.3 / 4096 * ({r1k} + {r2k}) / {r2k}))")
+            elif not any(d.get("name") == "BATTERY_ADJUST" for d in spec.get("raw_defines", [])):
+                # firmware/lib/battery/battery.cpp: `return BATTERY_ADJUST(reading);`
+                # (no #ifndef fallback) — an ADC battery config MUST define it.
+                if "PICO" in mcu_name or "RP2" in mcu_name:
                     lines.append(f"#define BATTERY_ADJUST(v) ((v) * (3.3 / 4096 * ({r1k} + {r2k}) / {r2k}))")
                 else:  # ESP32 family: analogReadMilliVolts() returns millivolts
                     lines.append(f"#define BATTERY_ADJUST(v) ((v) * (({r1k} + {r2k}) / {r2k}) / 1000.0)")

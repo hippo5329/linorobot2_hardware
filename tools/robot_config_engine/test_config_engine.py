@@ -346,6 +346,38 @@ const int16_t ADC_LUT[4096] = {
         self.assertEqual(merged3["sensors"]["adc_lut"], [1, 2, 3])
         self.assertTrue(any(c["field"] == "sensors.adc_lut" for c in changes))
 
+    def test_adc_lut_wins_over_stale_raw_battery_adjust(self):
+        # Regression: a header this generator wrote WITHOUT a LUT (e.g. the
+        # config-sync that runs at the start of an adc_calibrate upload,
+        # before the sweep has produced anything yet) contains a literal
+        # #define BATTERY_ADJUST(...). A re-parse can't tell that apart from
+        # a hand-written override, so it lands in raw_defines — which used to
+        # make the "only emit BATTERY_ADJUST if raw_defines doesn't already
+        # have one" guard block a LATER regenerate (the auto-commit that
+        # follows a completed sweep) from ever emitting the LUT-based
+        # formula, silently dropping the whole calibration. The LUT must win
+        # unconditionally once it exists, and BATTERY_ADJUST must appear only
+        # once (not doubled by the raw_defines passthrough).
+        raw = """
+#ifndef PRELUT_CONFIG_H
+#define PRELUT_CONFIG_H
+#define LINO_BASE DIFFERENTIAL_DRIVE
+#define BATTERY_PIN 33
+#define DAC_PIN 25
+#define BATTERY_ADJUST(v) ((v) * ((30 + 7.5) / 7.5) / 1000.0)
+#define BAUDRATE 921600
+#endif
+"""
+        base = parse_header_to_spec(raw)
+        self.assertTrue(any(d.get("name") == "BATTERY_ADJUST" for d in base.get("raw_defines", [])))
+
+        overlay = {"sensors": {"battery_monitor": "ADC_DIVIDER", "adc_lut": list(range(4096))}, "mcu": "ESP32"}
+        merged, _ = merge_configurations(base, overlay)
+        h = generate_config_header(merged)
+        self.assertEqual(h.count("#define BATTERY_ADJUST"), 1)
+        self.assertIn("#define USE_ADC_LUT", h)
+        self.assertIn("ADC_LUT[v]", h)   # the LUT-linearized formula, not the plain one
+
     def test_merge_overlay_wins_over_parsed_battery_fields(self):
         # Regression: parser.py used to store BATTERY_MIN/MAX/CAP and the
         # divider resistors under different key names than the web-UI form
