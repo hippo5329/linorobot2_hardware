@@ -1384,6 +1384,8 @@ function updateDynamicUIState() {
   if (mergeBtn && !hasDac) { mergeBtn.disabled = true; mergeBtn.classList.add("is-disabled"); }
   const adcTargetOpt = document.querySelector('#auto-flash-target option[value="adc_calibrate"]');
   if (adcTargetOpt) {
+    // Hide the adc_calibrate target entirely on MCUs without a hardware DAC.
+    adcTargetOpt.hidden = !hasDac;
     adcTargetOpt.disabled = !hasDac;
     const tgtSel = document.getElementById("auto-flash-target");
     if (!hasDac && tgtSel && tgtSel.value === "adc_calibrate") tgtSel.value = "firmware";
