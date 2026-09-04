@@ -4387,6 +4387,11 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
   // command the per-line accumulate + substring scan below is dead weight that
   // grows O(n) in memory and O(n^2) in CPU over a long build log.
   const _isAdcCal = /\badc_calibrate\b/.test(command);
+  // Declared here (function scope), not inside the try{} below, because it's
+  // set from the SSE "done" handler (inside try) and read in finally{} —
+  // try/catch/finally each introduce their own block scope for let/const, so
+  // a let declared inside try is a ReferenceError from finally.
+  let _adcLutCommitPending = false;
 
   // Surface the live terminal: the console lives on the Automation tab, so a
   // command fired from any other tab (I2C auto-detect, ADC calibrate, branch
@@ -4512,7 +4517,7 @@ async function executeCommandInTerminal(command, title = "Executing Command") {
     let buffer = "";
     let adcStreamBuffer = "";
     let _adcLutFreshlyCaptured = false;   // set once THIS run's sweep lands a LUT
-    let _adcLutCommitPending = false;     // set in the "done" handler below
+    // _adcLutCommitPending is declared at function scope above (see comment there).
     let _sseDone = false;   // set on the `event: done` line — the socket may be
                             // kept alive, so we can't rely on the stream closing
     while (true) {
