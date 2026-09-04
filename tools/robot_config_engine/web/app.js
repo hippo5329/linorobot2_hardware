@@ -448,8 +448,17 @@ function initBranchPicker() {
     input.dataset.autoManaged = "false";   // user chose it — stop mirroring HEAD
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    if (typeof updateAutomationPreviews === "function") updateAutomationPreviews();
     close();
-    input.focus();
+    // Check the branch out on the Robot SBC right now (same command the
+    // "= name" button uses: create if missing, otherwise just switch).
+    const cmd = [
+      `set -e`,
+      `if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then echo "Not a git repository."; exit 1; fi`,
+      `git checkout -b "${name}" 2>/dev/null || git checkout "${name}"`,
+      `echo "Now on branch: $(git rev-parse --abbrev-ref HEAD)"`,
+    ].join("\n");
+    executeCommandInTerminal(cmd, `Switching to Git branch '${name}'`);
   };
 
   const render = (info) => {
