@@ -276,6 +276,14 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
         bat_pin = pins.get("battery_pin", sensors.get("battery_pin", -1))
         if bat_pin is not None and bat_pin >= 0:
             lines.append(f"#define BATTERY_PIN {bat_pin}")
+            # DAC output pin for the adc_calibrate sweep. Only the classic ESP32,
+            # the ESP32-S2 and the ESP32-based Waveshare General Driver carry a
+            # hardware DAC; everything else (ESP32-S3/C3, RP2040/RP2350, Teensy)
+            # has none, so no DAC_PIN is emitted there.
+            _dac_pin = pins.get("dac_pin", sensors.get("dac_pin"))
+            _mcu_has_dac = mcu_name in ("ESP32", "ESP32S2", "GENDRV")
+            if _mcu_has_dac and _dac_pin is not None and int(_dac_pin) >= 0:
+                lines.append(f"#define DAC_PIN {int(_dac_pin)}")
             r1 = sensors.get("battery_r1", sensors.get("battery_divider_r1", 30000.0))
             r2 = sensors.get("battery_r2", sensors.get("battery_divider_r2", 7500.0))
             # firmware/lib/battery/battery.cpp: `return BATTERY_ADJUST(reading);`
@@ -392,7 +400,7 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
                             r'|MOTOR_(MAX_RPM|OPERATING_VOLTAGE|POWER_MAX_VOLTAGE|POWER_MEASURED_VOLTAGE)$'
                             r'|MAX_RPM_RATIO$|PWM_(BITS|FREQUENCY|MAX|MIN)$|K_[PID]$|LINO_BASE$'
                             r'|WHEEL_DIAMETER$|LR_WHEELS_DISTANCE$|FR_WHEELS_DISTANCE$|ROBOT_WEIGHT$'
-                            r'|LED_PIN$|BAUDRATE$|SDA_PIN$|SCL_PIN$|TRIG_PIN$|ECHO_PIN$)')
+                            r'|LED_PIN$|BAUDRATE$|SDA_PIN$|SCL_PIN$|TRIG_PIN$|ECHO_PIN$|DAC_PIN$)')
     def _keep(nm):
         return (nm and nm not in emitted
                 and not nm.startswith("USE_")   # every USE_* feature flag is a modeled decision

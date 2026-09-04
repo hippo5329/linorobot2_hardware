@@ -266,6 +266,40 @@ class TestRobotConfigEngine(unittest.TestCase):
         self.assertEqual(h.count("#define TOPIC_PREFIX"), 1)
         self.assertEqual(h.count("#define K_P"), 1)
 
+    def test_dac_pin_roundtrip_and_mcu_gating(self):
+        # ESP32 header with a non-default DAC pin -> parsed, then re-emitted.
+        raw = """
+#ifndef DACBOT_CONFIG_H
+#define DACBOT_CONFIG_H
+#define LINO_BASE DIFFERENTIAL_DRIVE
+#define USE_BTS7960_MOTOR_DRIVER
+#define BATTERY_PIN 33
+#define DAC_PIN 26
+#define BATTERY_ADJUST(v) ((v) * ((30 + 7.5) / 7.5) / 1000.0)
+#define BAUDRATE 921600
+#endif
+"""
+        spec = parse_header_to_spec(raw)
+        self.assertEqual(spec["sensors"].get("dac_pin"), 26)
+        self.assertEqual(spec["pins"].get("dac_pin"), 26)
+        spec["mcu"] = "ESP32"
+        h = generate_config_header(spec)
+        self.assertIn("#define DAC_PIN 26", h)
+        self.assertEqual(h.count("#define DAC_PIN"), 1)
+
+        # Same spec on a DAC-less MCU (Pico) -> DAC_PIN must NOT be emitted.
+        pico = json.loads(json.dumps(self.valid_pico_spec))
+        pico["pins"]["dac_pin"] = 25
+        hp = generate_config_header(pico)
+        self.assertNotIn("#define DAC_PIN", hp)
+
+        # ESP32 form-shape spec with a DAC pin -> emitted.
+        esp = json.loads(json.dumps(self.valid_pico_spec))
+        esp["mcu"] = "ESP32"
+        esp["pins"]["dac_pin"] = 25
+        he = generate_config_header(esp)
+        self.assertIn("#define DAC_PIN 25", he)
+
     def test_user_modify_and_merge_workflow(self):
         # 1. User starts with an existing header (Fake IMU/Mag)
         raw_header = """

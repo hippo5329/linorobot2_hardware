@@ -289,6 +289,9 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     bat = re.search(r'^[ \t]*#define\s+BATTERY_PIN\s+(\d+)', content, re.MULTILINE)
     if bat:
         spec["sensors"]["battery_pin"] = int(bat.group(1))
+    dacp = re.search(r'^[ \t]*#define\s+DAC_PIN\s+(\d+)', content, re.MULTILINE)
+    if dacp:
+        spec["sensors"]["dac_pin"] = int(dacp.group(1))
     if _define_bool(content, "USE_INA219"):
         spec["sensors"]["use_ina219"] = True
 
@@ -492,6 +495,8 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     spec["pins"]["i2c"]["sda"] = spec["sensors"]["i2c_sda"]
     spec["pins"]["i2c"]["scl"] = spec["sensors"]["i2c_scl"]
     spec["pins"]["battery_pin"] = spec["sensors"]["battery_pin"]
+    if "dac_pin" in spec["sensors"]:
+        spec["pins"]["dac_pin"] = spec["sensors"]["dac_pin"]
     spec["pins"]["sonar"]["trig"] = spec["sensors"]["sonar_trig"]
     spec["pins"]["sonar"]["echo"] = spec["sensors"]["sonar_echo"]
 
@@ -551,7 +556,7 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
     # verbatim passthrough or they would double-emit / ignore a UI clear.
     modeled = {"K_P", "K_I", "K_D", "MAG_BIAS", "ACCEL_COV", "GYRO_COV",
                "ORI_COV", "MAG_COV", "POSE_COV", "TWIST_COV", "ENV_COV",
-               "TOPIC_PREFIX", "USE_BMP280", "BMP280_ADDR"}
+               "TOPIC_PREFIX", "USE_BMP280", "BMP280_ADDR", "DAC_PIN"}
     src_lines = content.split("\n")
     raw_defines: List[Dict[str, str]] = []
     stack: List[str] = []

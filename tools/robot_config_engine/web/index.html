@@ -1128,10 +1128,25 @@
                 </div>
               </div>
 
+              <!-- DAC pin selector + no-DAC notice -->
+              <div class="adc-dacpin-row" id="adc-dacpin-row">
+                <label for="cfg-dac-pin" class="form-label-xs">DAC Output Pin (sweep source)</label>
+                <select id="cfg-dac-pin" class="form-input form-input-sm font-mono" data-auto-managed="true">
+                  <option value="25">GPIO 25 — ESP32 DAC1</option>
+                  <option value="26">GPIO 26 — ESP32 DAC2</option>
+                  <option value="17">GPIO 17 — ESP32-S2 DAC1</option>
+                  <option value="18">GPIO 18 — ESP32-S2 DAC2</option>
+                </select>
+                <span class="input-hint">Jumper this pin to the battery ADC input for the calibration sweep. Emitted as <code>#define DAC_PIN</code>.</span>
+              </div>
+              <div class="adc-nodac-note" id="adc-nodac-note" style="display:none;">
+                ⚠️ ADC calibration needs a hardware DAC — available only on the <strong>ESP32</strong> and <strong>ESP32-S2</strong>. This MCU has none, so <code>adc_calibrate</code> is disabled.
+              </div>
+
               <!-- Setup Instruction & CAD Schematic Banner -->
               <div class="adc-setup-banner">
                 <span class="adc-setup-badge">🔌 Hardware Wiring</span>
-                <span class="adc-setup-text">Connect <strong>DAC Output GPIO 25 (DAC1)</strong> to your <strong>Battery ADC Input Pin</strong> (e.g. GPIO 33) for calibration. Use a <strong>1000pF filter capacitor</strong> to ground for noise suppression.</span>
+                <span class="adc-setup-text">Connect the <strong>DAC output pin</strong> (selected above) to your <strong>Battery ADC Input Pin</strong> (e.g. GPIO 33) for calibration. Use a <strong>1000pF filter capacitor</strong> to ground for noise suppression.</span>
               </div>
 
               <!-- CAD Circuit Schematic Viewer -->
@@ -1228,7 +1243,7 @@
                     <g class="cad-component" id="cad-comp-dac">
                       <!-- DAC Box on bottom left -->
                       <rect x="20" y="130" width="135" height="45" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
-                      <text x="87" y="148" fill="#fcd34d" font-size="11" font-weight="bold" text-anchor="middle">ESP32 DAC (GPIO 25)</text>
+                      <text x="87" y="148" fill="#fcd34d" font-size="11" font-weight="bold" text-anchor="middle" id="cad-svg-dac-pin">ESP32 DAC (GPIO 25)</text>
                       <text x="87" y="163" fill="#94a3b8" font-size="9" text-anchor="middle">Hardware Sweep 0–3.3V</text>
                       <!-- Calibration Jumper Line to Node -->
                       <path d="M 155 152 L 240 152 L 240 70 L 335 58" fill="none" stroke="url(#grad-dac)" stroke-width="2" stroke-dasharray="4,4"/>

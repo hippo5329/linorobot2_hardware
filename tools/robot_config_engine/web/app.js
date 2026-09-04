@@ -384,6 +384,18 @@ function isESP32(mcu) {
   return typeof mcu === "string" && (mcu.startsWith("ESP32") || mcu === "GENDRV");
 }
 
+// Only the classic ESP32, the ESP32-S2 and the ESP32-based Waveshare General
+// Driver carry a true hardware DAC — required for the adc_calibrate sweep.
+// ESP32-S3 / C3 / C6, RP2040/RP2350 and Teensy have none.
+function mcuHasDac(mcu) {
+  return mcu === "ESP32" || mcu === "ESP32S2" || mcu === "GENDRV";
+}
+
+// Valid DAC GPIOs per MCU: ESP32 -> 25/26, ESP32-S2 -> 17/18.
+function dacPinsForMcu(mcu) {
+  return mcu === "ESP32S2" ? [17, 18] : [25, 26];
+}
+
 // DOM Elements Initialization
 document.addEventListener("DOMContentLoaded", () => {
   initNavTabs();
@@ -776,6 +788,10 @@ function populateFormFromSpec(spec) {
   if (document.getElementById("cfg-bat-r1")) document.getElementById("cfg-bat-r1").value = spec.sensors?.battery_r1 || 30000;
   if (document.getElementById("cfg-bat-r2")) document.getElementById("cfg-bat-r2").value = spec.sensors?.battery_r2 || 7500;
   if (document.getElementById("cfg-bat-cap-val")) document.getElementById("cfg-bat-cap-val").value = spec.sensors?.battery_adc_cap || 1000;
+  const _dacPinLoad = spec.pins?.dac_pin ?? spec.sensors?.dac_pin;
+  if (document.getElementById("cfg-dac-pin") && _dacPinLoad != null && _dacPinLoad >= 0) {
+    document.getElementById("cfg-dac-pin").value = String(_dacPinLoad);
+  }
   document.getElementById("cfg-sonar").value = spec.sensors?.sonar ? "true" : "false";
   if (document.getElementById("cfg-env")) document.getElementById("cfg-env").value = spec.sensors?.env || "NONE";
 
@@ -1094,6 +1110,11 @@ function readSpecFromForm() {
 
   if (spec.sensors.battery_monitor === "ADC_DIVIDER") {
     spec.pins.battery_pin = getInt("pin-battery");
+    // DAC sweep pin — only meaningful where a hardware DAC exists.
+    if (mcuHasDac(spec.mcu)) {
+      const dp = getInt("cfg-dac-pin", -1);
+      if (dp >= 0) spec.pins.dac_pin = dp;
+    }
   }
   if (spec.sensors.sonar) {
     spec.pins.sonar = {
@@ -1242,6 +1263,45 @@ function updateDynamicUIState() {
 
   // Battery ADC
   document.getElementById("box-battery-pin").style.display = batteryType === "ADC_DIVIDER" ? "flex" : "none";
+
+  // DAC pin selector + ADC Calibration Studio availability.
+  // The hardware DAC (and therefore adc_calibrate) only exists on ESP32 /
+  // ESP32-S2 / GENDRV; on every other MCU the studio is greyed out and the
+  // adc_calibrate build target is disabled.
+  const hasDac = mcuHasDac(mcu);
+  const dacSel = document.getElementById("cfg-dac-pin");
+  if (dacSel) {
+    const allowed = dacPinsForMcu(mcu).map(String);
+    [...dacSel.options].forEach((o) => { o.hidden = !allowed.includes(o.value); });
+    if (!allowed.includes(dacSel.value)) dacSel.value = allowed[0];
+    const dacRow = document.getElementById("adc-dacpin-row");
+    if (dacRow) dacRow.style.display = (hasDac && batteryType === "ADC_DIVIDER") ? "flex" : "none";
+    // Keep the schematic label + status line in sync with the chosen pin.
+    const _dacFamily = mcu === "ESP32S2" ? "ESP32-S2 DAC" : "ESP32 DAC";
+    const svgDac = document.getElementById("cad-svg-dac-pin");
+    if (svgDac) svgDac.textContent = `${_dacFamily} (GPIO ${dacSel.value})`;
+    const st = document.getElementById("adc-status-text");
+    if (st && /Ready for calibration/.test(st.textContent)) {
+      st.textContent = `Ready for calibration. GPIO ${dacSel.value} (DAC) -> battery ADC pin.`;
+    }
+  }
+  const adcCard = document.getElementById("adc-studio-card");
+  if (adcCard) adcCard.classList.toggle("is-disabled", !hasDac);
+  const noDacNote = document.getElementById("adc-nodac-note");
+  if (noDacNote) noDacNote.style.display = hasDac ? "none" : "block";
+  ["btn-adc-run-cal", "btn-adc-sim-cal", "btn-upload-adc"].forEach((id) => {
+    const b = document.getElementById(id);
+    if (b) { b.disabled = !hasDac; b.classList.toggle("is-disabled", !hasDac); }
+  });
+  // Merge button stays disabled until a LUT exists even when a DAC is present.
+  const mergeBtn = document.getElementById("btn-adc-merge-lut");
+  if (mergeBtn && !hasDac) { mergeBtn.disabled = true; mergeBtn.classList.add("is-disabled"); }
+  const adcTargetOpt = document.querySelector('#auto-flash-target option[value="adc_calibrate"]');
+  if (adcTargetOpt) {
+    adcTargetOpt.disabled = !hasDac;
+    const tgtSel = document.getElementById("auto-flash-target");
+    if (!hasDac && tgtSel && tgtSel.value === "adc_calibrate") tgtSel.value = "firmware";
+  }
 
   // Sonar
   document.getElementById("box-sonar-trig").style.display = sonarActive ? "flex" : "none";
@@ -1756,6 +1816,12 @@ function generateCppHeader(spec) {
     const r2k = numFmt((sensors.battery_r2 || 7500) / 1000);
     const isRp2 = mcu.includes("PICO") || mcu.includes("RP2");
     lines.push(`#define BATTERY_PIN ${pins.battery_pin ?? 26}`);
+    // DAC output pin for the adc_calibrate sweep — hardware DAC only exists on
+    // ESP32 / ESP32-S2 / GENDRV.
+    const _dacPin = pins.dac_pin ?? sensors.dac_pin;
+    if (mcuHasDac(mcu) && _dacPin != null && Number(_dacPin) >= 0) {
+      lines.push(`#define DAC_PIN ${Number(_dacPin)}`);
+    }
     // firmware/lib/battery/battery.cpp calls BATTERY_ADJUST(reading) with no
     // #ifndef fallback — an ADC battery config MUST define it. ESP32
     // analogReadMilliVolts() returns mV; RP2040 analogRead() returns 12-bit counts.
@@ -4837,6 +4903,10 @@ function renderAdcChart(rawData, lutData, hoveredIndex = null) {
 // Live Hardware ADC Calibration Runner
 function runHardwareAdcCalibration() {
   const spec = currentSpec;
+  if (!mcuHasDac((spec.mcu || "").toUpperCase())) {
+    showToast("⚠️ ADC calibration needs a hardware DAC — only ESP32 / ESP32-S2.");
+    return;
+  }
   const port = document.getElementById("auto-flash-port")?.value.trim() || (isESP32(spec.mcu) ? "/dev/ttyUSB0" : "/dev/ttyACM0");
   const baud = spec.baudrate || spec.telemetry?.baudrate || ((spec.mcu || "").toUpperCase() === "GENDRV" ? 1500000 : 921600);
   const uploadCmd = getDirectUploadOrBuildCmd("adc_calibrate", true);
