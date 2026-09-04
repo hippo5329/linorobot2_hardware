@@ -5174,36 +5174,63 @@ async function loadExistingConfig(filename) {
 }
 
 // Merge modified UI form settings into base configuration
-async function mergeCurrentConfig() {
-  currentSpec = readSpecFromForm();
-  try {
-    const res = await fetch('/api/merge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base_spec: baseConfigSpec || currentSpec,
-        override_spec: currentSpec
-      })
-    });
-    const data = await res.json();
-    if (data.status === 'ok') {
-      currentSpec = data.merged_spec;
-      const count = data.changes ? data.changes.length : 0;
-      updateAutomationPreviews();
-      renderActiveCode();
-      showToast(`🔄 Merged ${count} updated setting(s) successfully!`);
-    }
-  } catch (e) {
-    showToast('⚠️ Merge error: ' + e.message);
-  }
-}
-
-// Save merged configuration directly to config/custom/
-async function saveConfigToFirmware() {
+// Merge & Save to Firmware — one click, one result. Used to be two separate
+// steps ("Merge & Diff" previewed an in-memory merge; "Save to Firmware" then
+// wrote whatever currentSpec happened to be, which silently skipped the
+// merge if you saved without merging first). Now it always searches for an
+// existing config/custom/<robot>_config.h and merges into it — your changes
+// here win, anything else already in that file is kept — then writes the
+// result in the same click. A brand-new robot name just gets a fresh file.
+async function mergeAndSaveConfig() {
   currentSpec = readSpecFromForm();
   const name = currentSpec.robot_name || 'robot';
   const filename = `${name}_config.h`;
-  const headerCode = generateCppHeader(currentSpec);
+
+  // Prefer a base the user explicitly loaded this session (Load Existing
+  // Config); otherwise look up whatever's on disk for this robot name right
+  // now — a fresh /api/configs call, not the possibly-stale cached list, so
+  // a file created by another action (e.g. a Full Deploy) this session is
+  // still found.
+  let baseContent = null;
+  if (!baseConfigSpec) {
+    try {
+      const listRes = await fetch('/api/configs');
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        existingConfigsList = listData.configs || [];
+        const hit = existingConfigsList.find(c => c.filename === filename);
+        if (hit) baseContent = hit.content;
+      }
+    } catch (e) { /* offline — fall through to a fresh save */ }
+  }
+
+  let headerCode, changeCount = null;
+  if (baseConfigSpec || baseContent) {
+    try {
+      const mergeBody = baseConfigSpec
+        ? { base_spec: baseConfigSpec, override_spec: currentSpec }
+        : { base_content: baseContent, override_spec: currentSpec };
+      const res = await fetch('/api/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mergeBody)
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        currentSpec = data.merged_spec;
+        changeCount = data.changes ? data.changes.length : 0;
+        headerCode = data.header;
+      } else {
+        headerCode = generateCppHeader(currentSpec);
+      }
+    } catch (e) {
+      showToast('⚠️ Merge error (saving unmerged): ' + e.message);
+      headerCode = generateCppHeader(currentSpec);
+    }
+  } else {
+    headerCode = generateCppHeader(currentSpec);
+  }
+
   try {
     const res = await fetch('/api/save', {
       method: 'POST',
@@ -5217,14 +5244,18 @@ async function saveConfigToFirmware() {
     });
     const data = await res.json();
     if (data.status === 'saved') {
-      showToast(`💾 Saved to config/custom/${filename}!` +
+      updateAutomationPreviews();
+      renderActiveCode();
+      const mergeNote = changeCount === null ? "new file" : `merged ${changeCount} field(s)`;
+      showToast(`💾 Saved config/custom/${filename} (${mergeNote}).` +
         (data.wifi_config_written ? ` WiFi keys → git-ignored wifi_config.h.` : ``));
+    } else {
+      showToast('⚠️ Save error: ' + (data.error || 'unknown'));
     }
   } catch (e) {
     showToast('⚠️ Save error: ' + e.message);
   }
 }
-
 
   // Existing Config & Merge Handlers
   loadExistingConfigsList();
@@ -5237,10 +5268,8 @@ async function saveConfigToFirmware() {
       else showToast("Select an existing config first");
     });
   }
-  const btnMergeCfg = document.getElementById("btn-merge-config");
-  if (btnMergeCfg) btnMergeCfg.addEventListener("click", mergeCurrentConfig);
-  const btnSaveCfg = document.getElementById("btn-save-config");
-  if (btnSaveCfg) btnSaveCfg.addEventListener("click", saveConfigToFirmware);
+  const btnMergeSaveCfg = document.getElementById("btn-merge-save-config");
+  if (btnMergeSaveCfg) btnMergeSaveCfg.addEventListener("click", mergeAndSaveConfig);
 
 
 // =============================================================================

@@ -1617,11 +1617,8 @@ const int16_t ADC_LUT[4096] = { /* insert adc_calibrate data here */ };</code></
           </div>
 
           <div class="artifact-actions">
-            <button id="btn-merge-config" class="btn btn-sm btn-accent" title="Merge current modifications with existing base configuration">
-              <span>🔄 Merge & Diff</span>
-            </button>
-            <button id="btn-save-config" class="btn btn-sm btn-primary" title="Save configuration directly to config/custom/">
-              <span>💾 Save to Firmware</span>
+            <button id="btn-merge-save-config" class="btn btn-sm btn-primary" title="Search config/custom/<robot>_config.h for an existing file, merge these settings into it (your changes win, anything else there is kept), and write the result">
+              <span>🔀 Merge &amp; Save to Firmware</span>
             </button>
             <button id="btn-copy-code" class="btn btn-sm btn-ghost" title="Copy code to clipboard">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
