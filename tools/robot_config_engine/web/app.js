@@ -1369,8 +1369,13 @@ function updateDynamicUIState() {
     const allowed = dacPinsForMcu(mcu).map(String);
     [...dacSel.options].forEach((o) => { o.hidden = !allowed.includes(o.value); });
     if (!allowed.includes(dacSel.value)) dacSel.value = allowed[0];
+    // Gated on hasDac alone, matching "Run Hardware Calibration" itself —
+    // adc_calibrate is a standalone diagnostic and doesn't require
+    // battery_monitor to be set to ADC_DIVIDER. Requiring that too meant the
+    // pin selector could be invisible while the Run button sat right there
+    // enabled, silently sweeping whatever pin was last selected.
     const dacRow = document.getElementById("adc-dacpin-row");
-    if (dacRow) dacRow.style.display = (hasDac && batteryType === "ADC_DIVIDER") ? "flex" : "none";
+    if (dacRow) dacRow.style.display = hasDac ? "flex" : "none";
     // Keep the schematic label + status line in sync with the chosen pin.
     const _dacFamily = mcu === "ESP32S2" ? "ESP32-S2 DAC" : "ESP32 DAC";
     const svgDac = document.getElementById("cad-svg-dac-pin");
