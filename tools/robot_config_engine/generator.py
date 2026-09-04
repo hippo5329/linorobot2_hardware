@@ -286,8 +286,15 @@ def generate_config_header(spec: Dict[str, Any]) -> str:
             bi.append("}")
             lines.extend(bi)
 
-    # Battery
-    if sensors.get("use_ina219", False):
+    # Battery. Same key-name split as everywhere else in this block: the
+    # web-UI form (readSpecFromForm()) only ever sets battery_monitor to the
+    # string "INA219"/"ADC_DIVIDER"/"NONE"; only a spec parsed from an
+    # existing header also carries the legacy boolean use_ina219 parser.py
+    # emits. Checking use_ina219 alone meant a brand-new robot (nothing to
+    # merge with, so the raw form overlay reaches generate_config_header()
+    # untouched) silently got NO #define USE_INA219 at all, even with i2c
+    # auto-detect having correctly set battery_monitor="INA219" in the form.
+    if sensors.get("battery_monitor") == "INA219" or sensors.get("use_ina219", False):
         lines.append("#define USE_INA219")
     else:
         bat_pin = pins.get("battery_pin", sensors.get("battery_pin", -1))

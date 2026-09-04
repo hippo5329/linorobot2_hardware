@@ -378,6 +378,32 @@ const int16_t ADC_LUT[4096] = {
         self.assertIn("#define USE_ADC_LUT", h)
         self.assertIn("ADC_LUT[v]", h)   # the LUT-linearized formula, not the plain one
 
+    def test_ina219_form_shape_emits_use_ina219(self):
+        # Regression, found running a real GenDrv Full Deploy through the web
+        # UI: generator.py checked only sensors.use_ina219 (a boolean parser.py
+        # sets when it parses an existing #define USE_INA219). The web-UI form
+        # (readSpecFromForm()) only ever sets sensors.battery_monitor to the
+        # string "INA219" — never that boolean — so a brand-new robot (i2c
+        # auto-detect having just set battery_monitor="INA219" in the form,
+        # nothing on disk yet to merge with) silently got NO #define USE_INA219
+        # at all, and /battery never appeared on the robot.
+        overlay = {
+            "robot_name": "gendrv_test", "mcu": "GENDRV", "kinematics": "DIFFERENTIAL_DRIVE",
+            "motors": {"driver_type": "BTS7960", "max_rpm": 150, "cpr": 900},
+            "geometry": {"wheel_diameter": 0.056, "track_width": 0.224, "weight": 2},
+            "sensors": {"battery_monitor": "INA219", "sonar": False},
+        }
+        h = generate_config_header(overlay)
+        self.assertIn("#define USE_INA219", h)
+
+        # And parser.py now sets the same form-shape key when it parses one
+        # back, so a later merge treats it as the SAME field (overlay wins),
+        # not two differently-named copies that silently diverge.
+        raw = "#ifndef X_H\n#define X_H\n#define LINO_BASE DIFFERENTIAL_DRIVE\n#define USE_INA219\n#define BAUDRATE 921600\n#endif\n"
+        parsed = parse_header_to_spec(raw)
+        self.assertTrue(parsed["sensors"]["use_ina219"])
+        self.assertEqual(parsed["sensors"]["battery_monitor"], "INA219")
+
     def test_merge_overlay_wins_over_parsed_battery_fields(self):
         # Regression: parser.py used to store BATTERY_MIN/MAX/CAP and the
         # divider resistors under different key names than the web-UI form

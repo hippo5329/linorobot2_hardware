@@ -311,6 +311,13 @@ def parse_header_to_spec(content: str) -> Dict[str, Any]:
             spec["sensors"]["adc_lut"] = lut_vals
     if _define_bool(content, "USE_INA219"):
         spec["sensors"]["use_ina219"] = True
+        # Also set the form-shape key (see generator.py's comment on this):
+        # otherwise an overlay's battery_monitor="ADC_DIVIDER"/"NONE" can't
+        # actually override a parsed use_ina219=True (deep-merge only
+        # overwrites a key the overlay itself sets), and the reverse — this
+        # value never reaching a brand-new, un-merged spec — is the bug that
+        # prompted this comment in the first place.
+        spec["sensors"]["battery_monitor"] = "INA219"
 
     # Environmental barometer (BMP280 / BME280)
     if _define_bool(content, "USE_BMP280"):
