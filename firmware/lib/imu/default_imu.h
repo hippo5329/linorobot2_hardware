@@ -285,6 +285,81 @@ class QMI8658IMU: public IMUInterface
         }
 };
 
+// ---------------------------------------------------------------------------
+// LSM6DSOX (STMicroelectronics 6-axis accel + gyro). Self-contained I2C
+// driver — no external library. Low noise / low drift; a good modern
+// replacement for the MPU6050. I2C address 0x6A (SDO/SA0 low) or 0x6B (high).
+// ---------------------------------------------------------------------------
+class LSM6DSOXIMU: public IMUInterface
+{
+    private:
+        uint8_t addr_ = 0x6A;
+        const float accel_scale_ = 0.061e-3f;   // ±2 g  -> g / LSB
+        const float gyro_scale_  = 8.75e-3f;    // 250 dps -> dps / LSB
+
+        geometry_msgs__msg__Vector3 accel_;
+        geometry_msgs__msg__Vector3 gyro_;
+
+        void w8(uint8_t reg, uint8_t val)
+        {
+            Wire.beginTransmission(addr_); Wire.write(reg); Wire.write(val); Wire.endTransmission();
+        }
+        bool rN(uint8_t reg, uint8_t *buf, uint8_t n)
+        {
+            Wire.beginTransmission(addr_); Wire.write(reg);
+            if (Wire.endTransmission(false) != 0) return false;
+            if (Wire.requestFrom((int)addr_, (int)n) != (int)n) return false;
+            for (uint8_t i = 0; i < n; i++) buf[i] = Wire.read();
+            return true;
+        }
+        uint8_t r8(uint8_t reg) { uint8_t v = 0; rN(reg, &v, 1); return v; }
+
+    public:
+        LSM6DSOXIMU() {}
+
+        bool startSensor() override
+        {
+            Wire.begin();
+            const uint8_t cand[2] = { 0x6A, 0x6B };
+            for (int i = 0; i < 2; i++)
+            {
+                addr_ = cand[i];
+                if (r8(0x0F) != 0x6C) continue;   // WHO_AM_I
+                w8(0x12, 0x01);                   // CTRL3_C: SW_RESET
+                delay(20);
+                w8(0x10, 0x40);                   // CTRL1_XL: 104 Hz, ±2 g
+                w8(0x11, 0x40);                   // CTRL2_G : 104 Hz, 250 dps
+                w8(0x12, 0x44);                   // CTRL3_C : BDU=1, IF_INC=1
+                return true;
+            }
+            return false;
+        }
+
+        geometry_msgs__msg__Vector3 readAccelerometer() override
+        {
+            uint8_t b[6];
+            if (rN(0x28, b, 6))                   // OUTX_L_A (little-endian)
+            {
+                accel_.x = (int16_t)(b[1] << 8 | b[0]) * (double)accel_scale_ * g_to_accel_;
+                accel_.y = (int16_t)(b[3] << 8 | b[2]) * (double)accel_scale_ * g_to_accel_;
+                accel_.z = (int16_t)(b[5] << 8 | b[4]) * (double)accel_scale_ * g_to_accel_;
+            }
+            return accel_;
+        }
+
+        geometry_msgs__msg__Vector3 readGyroscope() override
+        {
+            uint8_t b[6];
+            if (rN(0x22, b, 6))                   // OUTX_L_G
+            {
+                gyro_.x = (int16_t)(b[1] << 8 | b[0]) * (double)gyro_scale_ * DEG_TO_RAD;
+                gyro_.y = (int16_t)(b[3] << 8 | b[2]) * (double)gyro_scale_ * DEG_TO_RAD;
+                gyro_.z = (int16_t)(b[5] << 8 | b[4]) * (double)gyro_scale_ * DEG_TO_RAD;
+            }
+            return gyro_;
+        }
+};
+
 // Note: Sparkfun library redefines I2C_BUFFER_LENGTH, so we undefine it for this class
 #ifdef I2C_BUFFER_LENGTH
 #undef I2C_BUFFER_LENGTH
