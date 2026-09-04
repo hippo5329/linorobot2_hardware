@@ -360,6 +360,87 @@ class LSM6DSOXIMU: public IMUInterface
         }
 };
 
+// ---------------------------------------------------------------------------
+// ICM-20948 (TDK InvenSense 9-axis). Self-contained I2C driver — accel + gyro
+// here; the on-chip AK09916 magnetometer is exposed at 0x0C via I2C bypass
+// (see ICM20948MAG in default_mag.h). Low noise / low drift. I2C address
+// 0x68 (AD0 low) or 0x69 (high). Register banks selected via REG_BANK_SEL.
+// ---------------------------------------------------------------------------
+class ICM20948IMU: public IMUInterface
+{
+    private:
+        uint8_t addr_ = 0x68;
+        const float accel_scale_ = 1.0f / 16384.0f;   // ±2 g  -> g / LSB
+        const float gyro_scale_  = 1.0f / 131.0f;     // ±250 dps -> dps / LSB
+
+        geometry_msgs__msg__Vector3 accel_;
+        geometry_msgs__msg__Vector3 gyro_;
+
+        void w8(uint8_t reg, uint8_t val)
+        {
+            Wire.beginTransmission(addr_); Wire.write(reg); Wire.write(val); Wire.endTransmission();
+        }
+        bool rN(uint8_t reg, uint8_t *buf, uint8_t n)
+        {
+            Wire.beginTransmission(addr_); Wire.write(reg);
+            if (Wire.endTransmission(false) != 0) return false;
+            if (Wire.requestFrom((int)addr_, (int)n) != (int)n) return false;
+            for (uint8_t i = 0; i < n; i++) buf[i] = Wire.read();
+            return true;
+        }
+        uint8_t r8(uint8_t reg) { uint8_t v = 0; rN(reg, &v, 1); return v; }
+        void bank(uint8_t b) { w8(0x7F, b << 4); }   // REG_BANK_SEL
+
+    public:
+        ICM20948IMU() {}
+
+        bool startSensor() override
+        {
+            Wire.begin();
+            const uint8_t cand[2] = { 0x68, 0x69 };
+            for (int i = 0; i < 2; i++)
+            {
+                addr_ = cand[i];
+                bank(0);
+                if (r8(0x00) != 0xEA) continue;   // WHO_AM_I
+                w8(0x06, 0x80); delay(20);        // PWR_MGMT_1: device reset
+                w8(0x06, 0x01);                   // PWR_MGMT_1: auto clock, wake
+                w8(0x07, 0x00);                   // PWR_MGMT_2: accel + gyro enabled
+                w8(0x0F, 0x02);                   // INT_PIN_CFG: BYPASS_EN -> AK09916 @ 0x0C
+                bank(2);
+                w8(0x01, 0x00);                   // GYRO_CONFIG_1: ±250 dps, DLPF off
+                w8(0x14, 0x00);                   // ACCEL_CONFIG : ±2 g,    DLPF off
+                bank(0);
+                return true;
+            }
+            return false;
+        }
+
+        geometry_msgs__msg__Vector3 readAccelerometer() override
+        {
+            uint8_t b[6];
+            if (rN(0x2D, b, 6))                   // ACCEL_XOUT_H (big-endian)
+            {
+                accel_.x = (int16_t)(b[0] << 8 | b[1]) * (double)accel_scale_ * g_to_accel_;
+                accel_.y = (int16_t)(b[2] << 8 | b[3]) * (double)accel_scale_ * g_to_accel_;
+                accel_.z = (int16_t)(b[4] << 8 | b[5]) * (double)accel_scale_ * g_to_accel_;
+            }
+            return accel_;
+        }
+
+        geometry_msgs__msg__Vector3 readGyroscope() override
+        {
+            uint8_t b[6];
+            if (rN(0x33, b, 6))                   // GYRO_XOUT_H
+            {
+                gyro_.x = (int16_t)(b[0] << 8 | b[1]) * (double)gyro_scale_ * DEG_TO_RAD;
+                gyro_.y = (int16_t)(b[2] << 8 | b[3]) * (double)gyro_scale_ * DEG_TO_RAD;
+                gyro_.z = (int16_t)(b[4] << 8 | b[5]) * (double)gyro_scale_ * DEG_TO_RAD;
+            }
+            return gyro_;
+        }
+};
+
 // Note: Sparkfun library redefines I2C_BUFFER_LENGTH, so we undefine it for this class
 #ifdef I2C_BUFFER_LENGTH
 #undef I2C_BUFFER_LENGTH

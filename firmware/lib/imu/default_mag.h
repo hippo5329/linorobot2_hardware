@@ -254,6 +254,57 @@ class QMC5883LMAG: public MAGInterface
         }
 };
 
+// AK09916 magnetometer inside an ICM-20948, reached at 0x0C once
+// ICM20948IMU::startSensor() has enabled I2C bypass. Requires USE_ICM20948_IMU.
+class ICM20948MAG: public MAGInterface
+{
+    private:
+        static const uint8_t MAG_ADDR = 0x0C;
+        geometry_msgs__msg__Vector3 mag_;
+
+        void w8(uint8_t reg, uint8_t val)
+        {
+            Wire.beginTransmission(MAG_ADDR); Wire.write(reg); Wire.write(val); Wire.endTransmission();
+        }
+        bool rN(uint8_t reg, uint8_t *buf, uint8_t n)
+        {
+            Wire.beginTransmission(MAG_ADDR); Wire.write(reg);
+            if (Wire.endTransmission(false) != 0) return false;
+            if (Wire.requestFrom((int)MAG_ADDR, (int)n) != (int)n) return false;
+            for (uint8_t i = 0; i < n; i++) buf[i] = Wire.read();
+            return true;
+        }
+        uint8_t r8(uint8_t reg) { uint8_t v = 0; rN(reg, &v, 1); return v; }
+
+    public:
+        ICM20948MAG()
+        {
+        }
+
+        bool startSensor() override
+        {
+            Wire.begin();
+            if (r8(0x01) != 0x09)   // WIA2 (AK09916 device id)
+                return false;
+            w8(0x31, 0x08);         // CNTL2: continuous measurement mode 100 Hz
+            delay(10);
+            return true;
+        }
+
+        geometry_msgs__msg__Vector3 readMagnetometer() override
+        {
+            uint8_t b[9];
+            // 0x10 ST1 .. 0x16 HZH .. 0x18 ST2 (ST2 read latches the next sample)
+            if (rN(0x10, b, 9))
+            {
+                mag_.x = (int16_t)(b[2] << 8 | b[1]) * 0.15e-6;   // 0.15 µT/LSB -> Tesla
+                mag_.y = (int16_t)(b[4] << 8 | b[3]) * 0.15e-6;
+                mag_.z = (int16_t)(b[6] << 8 | b[5]) * 0.15e-6;
+            }
+            return mag_;
+        }
+};
+
 class FakeMAG: public MAGInterface
 {
     private:
