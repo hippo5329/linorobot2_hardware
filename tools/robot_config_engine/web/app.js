@@ -5174,7 +5174,7 @@ async function loadExistingConfig(filename) {
 }
 
 // Merge modified UI form settings into base configuration
-// Sync to Firmware — one click, one result. Used to be two separate
+// Sync to Config — one click, one result. Used to be two separate
 // steps ("Merge & Diff" previewed an in-memory merge; "Save to Firmware" then
 // wrote whatever currentSpec happened to be, which silently skipped the
 // merge if you saved without merging first). Now it always searches for an
