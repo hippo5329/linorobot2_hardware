@@ -852,7 +852,7 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
             topics = []
             try:
                 setup_bash = ""
-                for distro in ["jazzy", "lyrical", "rolling", "humble"]:
+                for distro in ["jazzy", "lyrical", "rolling"]:
                     p = f"/opt/ros/{distro}/setup.bash"
                     if os.path.exists(p):
                         setup_bash = p
@@ -919,7 +919,7 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
             rate_val = "0.0"
             try:
                 setup_bash = ""
-                for distro in ["jazzy", "lyrical", "rolling", "humble"]:
+                for distro in ["jazzy", "lyrical", "rolling"]:
                     p = f"/opt/ros/{distro}/setup.bash"
                     if os.path.exists(p):
                         setup_bash = p
@@ -950,7 +950,7 @@ class LinorobotEngineHandler(SimpleHTTPRequestHandler):
             mode = qs.get("mode", ["echo"])[0].strip()
 
             setup_bash = ""
-            for distro in ["jazzy", "lyrical", "rolling", "humble"]:
+            for distro in ["jazzy", "lyrical", "rolling"]:
                 p = f"/opt/ros/{distro}/setup.bash"
                 if os.path.exists(p):
                     setup_bash = p

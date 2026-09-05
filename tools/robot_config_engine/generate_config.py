@@ -116,7 +116,7 @@ def main():
     parser = argparse.ArgumentParser(description="Linorobot2 Hardware Rule Validator & Code Generator")
     parser.add_argument("spec_file", help="Path to input JSON specification file")
     parser.add_argument("--out-dir", help="Output directory for generated files", default=None)
-    parser.add_argument("--ros-distro", help="Target ROS distribution (jazzy, lyrical, rolling, humble)", default="jazzy")
+    parser.add_argument("--ros-distro", help="Target ROS distribution (jazzy, lyrical, rolling)", default="jazzy")
     parser.add_argument("--merge", action="store_true", help="Merge generated header, platformio.ini, and URDF directly into codebase")
     parser.add_argument("--commit", action="store_true", help="Automatically create Git commit with merged configuration")
     parser.add_argument("--repo-root", help="Repository root path (defaults to auto-detected root)", default=None)

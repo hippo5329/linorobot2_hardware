@@ -2693,7 +2693,6 @@ function syncRobotHostInfo(data) {
   const rosSelect = document.getElementById("auto-ros-distro");
   if (rosSelect && !rosSelect.dataset.userModified && rosDistros.length > 0) {
     if (rosDistros.includes("jazzy")) rosSelect.value = "jazzy";
-    else if (rosDistros.includes("humble")) rosSelect.value = "humble";
     else if (rosDistros.includes("lyrical")) rosSelect.value = "lyrical";
     else if (rosDistros.includes("rolling")) rosSelect.value = "rolling";
   }
