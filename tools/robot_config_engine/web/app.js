@@ -29,18 +29,51 @@ function guessMcuFromUsbDetail(detail) {
   // descriptor), so trust it exactly rather than re-guessing from vid/mfr —
   // a plain CP2102 (max ~1 Mbps per datasheet) must NOT take this branch.
   if (chip.includes("gendrv") || product.includes("general driver") || chip.includes("cp2102n")) {
-    return { mcu: "ESP32", baudrate: 1500000, chipName: "ESP32 DevKit (CP2102N)", preset: "bare" };
+    return { mcu: "ESP32", baudrate: 1500000, supportsHighBaud: true, chipName: "ESP32 DevKit (CP2102N)", preset: "bare" };
   }
   // FTDI FT232-family bridges are also reliable well past 921600.
   if (chip.includes("ftdi")) {
-    return { mcu: "ESP32", baudrate: 1500000, chipName: "ESP32 Microcontroller (FTDI)", preset: "bare" };
+    return { mcu: "ESP32", baudrate: 1500000, supportsHighBaud: true, chipName: "ESP32 Microcontroller (FTDI)", preset: "bare" };
   }
   // CH340/CH341 and unidentified/plain CP210x bridges: no 1.5M reliability
-  // guarantee, keep the conservative baseline.
+  // guarantee (plain CP2102 is rated ~1 Mbps max) — keep the conservative
+  // baseline and don't offer a speed the chip isn't confirmed to support.
   if (chip.includes("esp32") || chip.includes("cp210") || chip.includes("ch340")) {
-    return { mcu: "ESP32", baudrate: 921600, chipName: "ESP32 Microcontroller", preset: "bare" };
+    return { mcu: "ESP32", baudrate: 921600, supportsHighBaud: false, chipName: "ESP32 Microcontroller", preset: "bare" };
   }
   return null;
+}
+
+// Reflect a detected USB bridge chip onto the baud-rate UI: hide the 1.5M
+// option when the chip isn't confirmed to support it (e.g. a plain CP2102,
+// max ~1 Mbps), show/select it when it is, and display which chip drove
+// the decision. Native-USB-CDC boards (Pico/Pico2/ESP32-S3) don't set
+// `supportsHighBaud` and are left untouched — there's no bridge chip to
+// rate-limit them.
+function applyDetectedChipToBaudUi(guessed) {
+  const baudSelect = document.getElementById("cfg-baudrate");
+  const hint = document.getElementById("cfg-baudrate-chip-hint");
+  if (!baudSelect) return;
+  const opt1500k = baudSelect.querySelector('option[value="1500000"]');
+  if (guessed && typeof guessed.supportsHighBaud === "boolean") {
+    if (opt1500k) {
+      opt1500k.hidden = !guessed.supportsHighBaud;
+      opt1500k.disabled = !guessed.supportsHighBaud;
+    }
+    if (!guessed.supportsHighBaud && baudSelect.value === "1500000") {
+      baudSelect.value = "921600";
+    }
+    if (guessed.baudrate) baudSelect.value = String(guessed.baudrate);
+    if (hint) {
+      hint.textContent = guessed.supportsHighBaud
+        ? `⚡ Detected: ${guessed.chipName} — 1.5M baud supported, suggested.`
+        : `Detected: ${guessed.chipName} — 1.5M not supported by this chip, hidden.`;
+      hint.style.display = "block";
+    }
+  } else if (guessed) {
+    if (guessed.baudrate) baudSelect.value = String(guessed.baudrate);
+    if (hint) hint.style.display = "none";
+  }
 }
 
 /**
@@ -2742,8 +2775,7 @@ function syncRobotHostInfo(data) {
           const detail = (data.port_details || []).find(d => d.port === p);
           const guessed = guessMcuFromUsbDetail(detail);
           if (guessed) {
-            const baudSelect = document.getElementById("cfg-baudrate");
-            if (baudSelect && guessed.baudrate) baudSelect.value = String(guessed.baudrate);
+            applyDetectedChipToBaudUi(guessed);
             const mcuSelect = document.getElementById("cfg-mcu");
             if (mcuSelect && mcuSelect.value !== guessed.mcu) {
               mcuSelect.value = guessed.mcu;
@@ -2787,8 +2819,7 @@ function syncRobotHostInfo(data) {
           mcuSelect.dispatchEvent(new Event("change"));
         }
         applyMcuRobotName(guessed.mcu);
-        const baudSelect = document.getElementById("cfg-baudrate");
-        if (baudSelect && guessed.baudrate) baudSelect.value = String(guessed.baudrate);
+        applyDetectedChipToBaudUi(guessed);
         recomputeAll();
         showToast(`⚡ Auto-detected Hardware: ${guessed.chipName} on ${ports[0]} (Bare Module Default Loaded — all pins N/C)`);
       }
