@@ -5,7 +5,6 @@ function guessMcuFromUsbDetail(detail) {
   const pid = (detail.pid || "").toLowerCase();
   const chip = (detail.chip || "").toLowerCase();
   const product = (detail.product || "").toLowerCase();
-  const mfr = (detail.manufacturer || "").toLowerCase();
 
   // Raspberry Pi (VID 2e8a): distinguish RP2350 (Pico 2) from RP2040 (Pico) by
   // USB PID / product string — BOOTSEL is only a mode label, never the deciding
@@ -25,7 +24,11 @@ function guessMcuFromUsbDetail(detail) {
   }
   // CP2102N (Silicon Labs) is rated for and HW-verified at 1.5M baud (same
   // bridge chip as GenDrv) — default straight to the high-throughput rate.
-  if (chip.includes("gendrv") || product.includes("general driver") || chip.includes("cp2102n") || (chip.includes("cp2102") && mfr.includes("silicon"))) {
+  // CP2102N and plain CP2102 share the same VID:PID (10c4:ea60); server.py's
+  // chip string is the only thing that tells them apart (via the USB product
+  // descriptor), so trust it exactly rather than re-guessing from vid/mfr —
+  // a plain CP2102 (max ~1 Mbps per datasheet) must NOT take this branch.
+  if (chip.includes("gendrv") || product.includes("general driver") || chip.includes("cp2102n")) {
     return { mcu: "ESP32", baudrate: 1500000, chipName: "ESP32 DevKit (CP2102N)", preset: "bare" };
   }
   // FTDI FT232-family bridges are also reliable well past 921600.

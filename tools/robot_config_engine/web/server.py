@@ -597,7 +597,14 @@ def get_port_usb_details(port_path):
         else:
             info["chip"] = "Espressif USB Serial"
     elif vid == "10c4" and pid == "ea60":
-        info["chip"] = "CP2102N USB Bridge (ESP32/GenDrv)"
+        # CP2102 and CP2102N share this VID:PID by default — only the USB
+        # product string tells them apart. CP2102N (rated/verified up to
+        # 1.5M+ baud) only gets the fast label when explicitly confirmed;
+        # a plain CP2102 (max ~1 Mbps per datasheet) stays conservative.
+        if "cp2102n" in info["product"].lower():
+            info["chip"] = "CP2102N USB Bridge (ESP32/GenDrv)"
+        else:
+            info["chip"] = "CP2102 USB Bridge (ESP32)"
     elif vid == "1a86" and pid in ["7523", "5523", "7522"]:
         info["chip"] = "CH340/CH341 USB Bridge (Arduino/ESP32)"
     elif vid == "0403" and pid in ["6001", "6010", "6015"]:
