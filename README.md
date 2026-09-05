@@ -304,7 +304,7 @@ You will need to enable Magdwick filter by adding "madgwick:=true" in robot brin
 
 Magnetometer calibration should be taken on board with all hardware installed, inlcuding all connectors, battery and motors. The calibration package will rotate the robot slowly for 60 sec. And compute the hard iron bias. More info [here](https://github.com/mikeferguson/robot_calibration#the-magnetometer_calibration-node).
 
-    sudo apt-get install ros-humble-robot-calibration -y
+    sudo apt-get install ros-$ROS_DISTRO-robot-calibration -y
     rm -rf /tmp/magnetometer_calibration.bag
     ros2 run robot_calibration magnetometer_calibration
     ...
