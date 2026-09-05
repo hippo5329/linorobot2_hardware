@@ -23,10 +23,18 @@ function guessMcuFromUsbDetail(detail) {
   if (vid === "303a" || chip.includes("esp32-s3") || product.includes("esp32-s3")) {
     return { mcu: "ESP32S3", baudrate: 921600, chipName: "ESP32-S3 (Native USB CDC)", preset: "bare" };
   }
-  if (chip.includes("gendrv") || product.includes("general driver") || (chip.includes("cp2102") && mfr.includes("silicon"))) {
-    return { mcu: "ESP32", baudrate: 921600, chipName: "ESP32 DevKit (CP2102N)", preset: "bare" };
+  // CP2102N (Silicon Labs) is rated for and HW-verified at 1.5M baud (same
+  // bridge chip as GenDrv) — default straight to the high-throughput rate.
+  if (chip.includes("gendrv") || product.includes("general driver") || chip.includes("cp2102n") || (chip.includes("cp2102") && mfr.includes("silicon"))) {
+    return { mcu: "ESP32", baudrate: 1500000, chipName: "ESP32 DevKit (CP2102N)", preset: "bare" };
   }
-  if (chip.includes("esp32") || chip.includes("cp210") || chip.includes("ch340") || chip.includes("ftdi")) {
+  // FTDI FT232-family bridges are also reliable well past 921600.
+  if (chip.includes("ftdi")) {
+    return { mcu: "ESP32", baudrate: 1500000, chipName: "ESP32 Microcontroller (FTDI)", preset: "bare" };
+  }
+  // CH340/CH341 and unidentified/plain CP210x bridges: no 1.5M reliability
+  // guarantee, keep the conservative baseline.
+  if (chip.includes("esp32") || chip.includes("cp210") || chip.includes("ch340")) {
     return { mcu: "ESP32", baudrate: 921600, chipName: "ESP32 Microcontroller", preset: "bare" };
   }
   return null;
@@ -2731,6 +2739,8 @@ function syncRobotHostInfo(data) {
           const detail = (data.port_details || []).find(d => d.port === p);
           const guessed = guessMcuFromUsbDetail(detail);
           if (guessed) {
+            const baudSelect = document.getElementById("cfg-baudrate");
+            if (baudSelect && guessed.baudrate) baudSelect.value = String(guessed.baudrate);
             const mcuSelect = document.getElementById("cfg-mcu");
             if (mcuSelect && mcuSelect.value !== guessed.mcu) {
               mcuSelect.value = guessed.mcu;
@@ -2774,6 +2784,8 @@ function syncRobotHostInfo(data) {
           mcuSelect.dispatchEvent(new Event("change"));
         }
         applyMcuRobotName(guessed.mcu);
+        const baudSelect = document.getElementById("cfg-baudrate");
+        if (baudSelect && guessed.baudrate) baudSelect.value = String(guessed.baudrate);
         recomputeAll();
         showToast(`⚡ Auto-detected Hardware: ${guessed.chipName} on ${ports[0]} (Bare Module Default Loaded — all pins N/C)`);
       }
