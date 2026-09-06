@@ -74,6 +74,60 @@ class TestRobotConfigEngine(unittest.TestCase):
         self.assertFalse(valid)
         self.assertTrue(any("assigned to multiple functions" in str(e) for e in errors))
 
+    def _esp32_diff_spec(self):
+        """A minimal, otherwise-valid ESP32 differential spec for pin-rule tests."""
+        return {
+            "robot_name": "esp32_bot",
+            "kinematics": "DIFFERENTIAL_DRIVE",
+            "mcu": "ESP32",
+            "transport": "SERIAL",
+            "geometry": {"wheel_diameter": 0.065, "track_width": 0.20, "weight": 3.5},
+            "motors": {"driver_type": "GENERIC_2_IN", "max_rpm": 330, "cpr": 1320,
+                       "rated_torque": 1.5, "rated_voltage": 12.0},
+            "sensors": {"imu": "MPU6050", "mag": "NONE", "battery_monitor": "NONE"},
+            "pins": {
+                "led": 13,
+                "motor1": {"pwm": 25, "in_a": 26, "in_b": 27},
+                "motor2": {"pwm": 32, "in_a": 33, "in_b": 4},
+                "encoders": {"m1_a": 16, "m1_b": 17, "m2_a": 18, "m2_b": 19},
+                "i2c": {"sda": 21, "scl": 22},
+            },
+        }
+
+    def test_esp32_strapping_pin_as_motor_output_warns(self):
+        spec = self._esp32_diff_spec()
+        spec["pins"]["motor1"]["pwm"] = 12  # MTDI strapping pin, driven as PWM output
+        ok, errors, _ = validate_robot_spec(spec)
+        self.assertFalse(ok)  # GPIO 12 as output is an ERROR
+        self.assertTrue(any("GPIO 12" in str(e) and "boot" in str(e).lower() for e in errors))
+
+    def test_esp32_strapping_pin_15_output_is_warning_not_error(self):
+        spec = self._esp32_diff_spec()
+        spec["pins"]["led"] = 15  # strapping pin, but not the flash-voltage one
+        ok, errors, _ = validate_robot_spec(spec)
+        self.assertTrue(ok)
+        self.assertTrue(any("GPIO 15" in str(e) and e.level == "WARNING" for e in errors))
+
+    def test_esp32_input_only_encoder_pullup_warning(self):
+        spec = self._esp32_diff_spec()
+        spec["pins"]["encoders"]["m1_a"] = 34  # input-only, no internal pull-up
+        ok, errors, _ = validate_robot_spec(spec)
+        self.assertTrue(ok)
+        self.assertTrue(any("pull-up" in str(e) for e in errors))
+
+    def test_esp32_adc2_battery_pin_with_wifi_errors(self):
+        spec = self._esp32_diff_spec()
+        spec["transport"] = "WIFI_UDP"
+        spec["sensors"]["battery_monitor"] = "ADC_DIVIDER"
+        spec["pins"]["battery_pin"] = 4  # ADC2 -> unusable with WiFi
+        ok, errors, _ = validate_robot_spec(spec)
+        self.assertFalse(ok)
+        self.assertTrue(any("ADC2" in str(e) for e in errors))
+        # Same pin is fine on serial transport.
+        spec["transport"] = "SERIAL"
+        ok2, errors2, _ = validate_robot_spec(spec)
+        self.assertFalse(any("ADC2" in str(e) for e in errors2))
+
     def test_header_generation(self):
         header = generate_config_header(self.valid_pico_spec)
         self.assertIn("#define LINO_BASE DIFFERENTIAL_DRIVE", header)

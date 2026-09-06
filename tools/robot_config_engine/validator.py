@@ -25,6 +25,8 @@ ESP32_INPUT_ONLY_PINS = {34, 35, 36, 39}
 ESP32_FLASH_PINS = {6, 7, 8, 9, 10, 11}
 ESP32S3_STRAPPING_PINS = {0, 3, 45, 46}
 RP2040_ADC_PINS = {26, 27, 28, 29}
+# ESP32 ADC2 channels: unusable for analogRead() while WiFi is active.
+ESP32_ADC2_PINS = {0, 2, 4, 12, 13, 14, 15, 25, 26, 27}
 
 
 class ValidationError:
@@ -107,10 +109,19 @@ def validate_robot_spec(spec: Dict[str, Any]) -> Tuple[bool, List[ValidationErro
                 errors.append(ValidationError("ERROR", name, f"GPIO {pin} is connected to internal SPI Flash! Strictly forbidden."))
             if is_output and pin in ESP32_INPUT_ONLY_PINS:
                 errors.append(ValidationError("ERROR", name, f"GPIO {pin} is an INPUT-ONLY pin and cannot output PWM/DIR signals!"))
-            if not is_output and pin in ESP32_STRAPPING_PINS:
-                errors.append(ValidationError("WARNING", name, f"GPIO {pin} is an ESP32 strapping pin. Connecting encoders may cause boot failures if pulled LOW at power-on."))
+            if not is_output and pin in ESP32_INPUT_ONLY_PINS:
+                errors.append(ValidationError("WARNING", name, f"GPIO {pin} has no internal pull-up/pull-down; an encoder channel here needs an external pull-up resistor."))
+            if pin in ESP32_STRAPPING_PINS:
+                if pin == 12:
+                    errors.append(ValidationError("ERROR" if is_output else "WARNING", name, f"GPIO 12 (MTDI) is an ESP32 strapping pin that selects flash voltage at boot. Driving it{' as an output' if is_output else ''} can prevent the board from booting."))
+                elif is_output:
+                    errors.append(ValidationError("WARNING", name, f"GPIO {pin} is an ESP32 strapping pin; a driver/LED wired here can hold it at the wrong level during power-on and block boot. Add a series resistor or move the signal."))
+                else:
+                    errors.append(ValidationError("WARNING", name, f"GPIO {pin} is an ESP32 strapping pin. Connecting encoders may cause boot failures if pulled LOW at power-on."))
         elif mcu == "ESP32S3":
-            if not is_output and pin in ESP32S3_STRAPPING_PINS:
+            if is_output and pin in ESP32S3_STRAPPING_PINS:
+                errors.append(ValidationError("WARNING", name, f"GPIO {pin} is an ESP32-S3 strapping pin; an output wired here can block boot if held at the wrong level at power-on."))
+            elif not is_output and pin in ESP32S3_STRAPPING_PINS:
                 errors.append(ValidationError("WARNING", name, f"GPIO {pin} is an ESP32-S3 strapping pin."))
         elif mcu in ["PICO", "PICO2", "PICOW", "PICO2W"]:
             if pin < 0 or pin > 29:
@@ -151,12 +162,22 @@ def validate_robot_spec(spec: Dict[str, Any]) -> Tuple[bool, List[ValidationErro
     # Register LED pin
     register_pin(pins.get("led"), "pins.led", is_output=True)
 
+    telemetry = spec.get("telemetry", {})
+    use_wifi = bool(
+        telemetry.get("use_wifi")
+        or "WIFI" in str(spec.get("transport", "")).upper()
+        or "WIFI" in str(telemetry.get("transport", "")).upper()
+        or "UDP" in str(spec.get("transport", "")).upper()
+    )
+
     # Register Battery ADC pin
     if sensors.get("battery_monitor") == "ADC_DIVIDER":
         bat_pin = pins.get("battery_pin")
         register_pin(bat_pin, "pins.battery_pin", is_output=False)
         if mcu in ["PICO", "PICO2", "PICOW", "PICO2W"] and bat_pin is not None and bat_pin not in RP2040_ADC_PINS:
             errors.append(ValidationError("ERROR", "pins.battery_pin", f"GP{bat_pin} is not an analog ADC pin on RP2040/RP2350 (Must be GP26, GP27, or GP28)."))
+        if mcu in ["ESP32", "GENDRV"] and use_wifi and isinstance(bat_pin, int) and bat_pin in ESP32_ADC2_PINS:
+            errors.append(ValidationError("ERROR", "pins.battery_pin", f"GPIO {bat_pin} is on ADC2, which analogRead() cannot use while WiFi is active. Move the battery sense wire to an ADC1 pin (GPIO 32-39)."))
 
         r1 = float(sensors.get("battery_r1", 30000.0))
         r2 = float(sensors.get("battery_r2", 7500.0))
